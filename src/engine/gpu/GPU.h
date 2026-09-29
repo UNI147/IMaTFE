@@ -36,6 +36,7 @@ public:
 
     Half vram(std::size_t x, std::size_t y) const noexcept;
     void set_vram(std::size_t x, std::size_t y, Half value) noexcept;
+    void clear_vram(Half color = 0) noexcept;
     std::span<const Half> vram() const noexcept { return vram_; }
     std::span<Half> vram() noexcept { return vram_; }
 

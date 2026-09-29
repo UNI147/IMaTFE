@@ -4,6 +4,7 @@
 #include "tests/Stage2Tests.h"
 #include "tests/Stage3Tests.h"
 #include "tests/Stage4Tests.h"
+#include "tests/Stage5Tests.h"
 
 #include <iostream>
 
@@ -49,6 +50,13 @@ int main()
         std::cerr << "IMaTFE - Stage 4 verification failed.\n";
         engine.shutdown();
         return 5;
+    }
+
+    if (!imatfe::tests::run_stage5_tests())
+    {
+        std::cerr << "IMaTFE - Stage 5 verification failed.\n";
+        engine.shutdown();
+        return 6;
     }
 
     engine.shutdown();

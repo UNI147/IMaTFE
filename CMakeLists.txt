@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(IMaTFE
-    VERSION 0.4.0
+    VERSION 0.5.1
     LANGUAGES CXX
 )
 
@@ -20,6 +20,7 @@ add_executable(IMaTFE
     src/tests/Stage2Tests.cpp
     src/tests/Stage3Tests.cpp
     src/tests/Stage4Tests.cpp
+    src/tests/Stage5Tests.cpp
 )
 
 target_include_directories(IMaTFE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

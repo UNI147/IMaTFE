@@ -188,3 +188,18 @@ GP0/GP1 / VRAM / Environment / Basic Primitives
   [PASS] Line primitive includes both endpoints
   [PASS] GP0(02h) quick fill writes a 16-pixel span
 Stage 4 result: 15 passed, 0 failed.
+
+=== Stage 5: VRAM framebuffer ===
+  [PASS] VRAM contains 1024x512 16-bit pixels
+  [PASS] VRAM starts cleared
+  [PASS] 16-bit pixel round-trip 0
+  [PASS] 16-bit pixel round-trip 1
+  [PASS] 16-bit pixel round-trip 2
+  [PASS] 16-bit pixel round-trip 3
+  [PASS] 16-bit pixel round-trip 4
+  [PASS] Last VRAM pixel is addressable
+  [PASS] Out-of-range reads return zero
+  [PASS] Out-of-range writes do not alter VRAM
+  [PASS] clear_vram fills the entire framebuffer
+  [PASS] clear_vram defaults to black
+Stage 5 result: 12 passed, 0 failed.

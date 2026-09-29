@@ -64,6 +64,11 @@ void GPU::set_vram(std::size_t x, std::size_t y, Half value) noexcept
         vram_[y * VRAM_WIDTH + x] = value;
 }
 
+void GPU::clear_vram(Half color) noexcept
+{
+    std::fill(vram_.begin(), vram_.end(), color);
+}
+
 core::s16 GPU::signed16(Word value) noexcept
 {
     return static_cast<core::s16>(value & 0xFFFFu);

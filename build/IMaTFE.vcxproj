@@ -382,6 +382,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage2Tests.cpp" />
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage3Tests.cpp" />
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage4Tests.cpp" />
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage5Tests.cpp" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>
