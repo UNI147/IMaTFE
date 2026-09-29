@@ -288,7 +288,18 @@ void GPU::execute_gp0_quick_fill()
         for (core::s32 x = 0; x < width; ++x)
             if ((x & 0xF) == 0)
                 for (core::s32 xx = 0; xx < 16 && x + xx < width; ++xx)
-                    plot(x + xx + x0, y + y0, pixel);
+                {
+                    // GP0(02h) writes VRAM directly: drawing-area offsets and
+                    // mask-bit test/set do not affect the fill operation.
+                    const core::s32 dst_x = x + xx + x0;
+                    const core::s32 dst_y = y + y0;
+                    if (dst_x < 0 || dst_y < 0 ||
+                        dst_x >= static_cast<core::s32>(VRAM_WIDTH) ||
+                        dst_y >= static_cast<core::s32>(VRAM_HEIGHT))
+                        continue;
+                    vram_[static_cast<std::size_t>(dst_y) * VRAM_WIDTH +
+                          static_cast<std::size_t>(dst_x)] = pixel;
+                }
 }
 
 void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word cc, bool gouraud)
@@ -297,14 +308,24 @@ void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word c
     if (area == 0.0)
         return;
 
-    const core::s32 min_x = std::max<core::s32>(static_cast<core::s32>(draw_left_) - draw_offset_x_,
-        std::min({a.x, b.x, c.x}));
-    const core::s32 max_x = std::min<core::s32>(static_cast<core::s32>(draw_right_) - draw_offset_x_,
-        std::max({a.x, b.x, c.x}));
-    const core::s32 min_y = std::max<core::s32>(static_cast<core::s32>(draw_top_) - draw_offset_y_,
-        std::min({a.y, b.y, c.y}));
-    const core::s32 max_y = std::min<core::s32>(static_cast<core::s32>(draw_bottom_) - draw_offset_y_,
-        std::max({a.y, b.y, c.y}));
+    // Restrict the candidate box before iterating. Coordinates are signed GP0
+    // values; a malformed/off-screen primitive must not cause an enormous loop.
+    const core::s32 min_x = std::max<core::s32>({
+        static_cast<core::s32>(draw_left_) - draw_offset_x_,
+        -draw_offset_x_, 0 - draw_offset_x_, std::min({a.x, b.x, c.x})});
+    const core::s32 max_x = std::min<core::s32>({
+        static_cast<core::s32>(draw_right_) - draw_offset_x_,
+        static_cast<core::s32>(VRAM_WIDTH - 1) - draw_offset_x_,
+        std::max({a.x, b.x, c.x})});
+    const core::s32 min_y = std::max<core::s32>({
+        static_cast<core::s32>(draw_top_) - draw_offset_y_,
+        -draw_offset_y_, std::min({a.y, b.y, c.y})});
+    const core::s32 max_y = std::min<core::s32>({
+        static_cast<core::s32>(draw_bottom_) - draw_offset_y_,
+        static_cast<core::s32>(VRAM_HEIGHT - 1) - draw_offset_y_,
+        std::max({a.y, b.y, c.y})});
+    if (min_x > max_x || min_y > max_y)
+        return;
 
     for (core::s32 y = min_y; y <= max_y; ++y)
     {

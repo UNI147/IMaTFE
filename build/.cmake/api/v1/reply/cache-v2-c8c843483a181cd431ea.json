@@ -627,7 +627,7 @@
 				}
 			],
 			"type" : "STATIC",
-			"value" : "0.5.1"
+			"value" : "0.5.2"
 		},
 		{
 			"name" : "CMAKE_PROJECT_VERSION_MAJOR",
@@ -663,7 +663,7 @@
 				}
 			],
 			"type" : "STATIC",
-			"value" : "1"
+			"value" : "2"
 		},
 		{
 			"name" : "CMAKE_PROJECT_VERSION_TWEAK",

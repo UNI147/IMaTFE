@@ -189,7 +189,7 @@ GP0/GP1 / VRAM / Environment / Basic Primitives
   [PASS] GP0(02h) quick fill writes a 16-pixel span
 Stage 4 result: 15 passed, 0 failed.
 
-=== Stage 5: VRAM framebuffer ===
+=== Stage 5: Basic rasterization ===
   [PASS] VRAM contains 1024x512 16-bit pixels
   [PASS] VRAM starts cleared
   [PASS] 16-bit pixel round-trip 0
@@ -198,8 +198,17 @@ Stage 4 result: 15 passed, 0 failed.
   [PASS] 16-bit pixel round-trip 3
   [PASS] 16-bit pixel round-trip 4
   [PASS] Last VRAM pixel is addressable
-  [PASS] Out-of-range reads return zero
-  [PASS] Out-of-range writes do not alter VRAM
-  [PASS] clear_vram fills the entire framebuffer
-  [PASS] clear_vram defaults to black
-Stage 5 result: 12 passed, 0 failed.
+  [PASS] Out-of-range access is safe
+  [PASS] clear_vram fills the framebuffer
+  [PASS] Triangle fills an interior pixel
+  [PASS] Triangle rejects a pixel outside its coverage
+  [PASS] Triangle accepts reversed winding
+  [PASS] Degenerate triangle draws no pixels
+  [PASS] Variable rectangle fills width x height
+  [PASS] Rectangle right/bottom edge is exclusive
+  [PASS] 8x8 fixed-size sprite rasterizes
+  [PASS] 8x8 sprite has exclusive extent
+  [PASS] 16x16 fixed-size sprite rasterizes
+  [PASS] Primitive is clipped to drawing area
+  [PASS] Pixels outside drawing area remain untouched
+Stage 5 result: 21 passed, 0 failed.
