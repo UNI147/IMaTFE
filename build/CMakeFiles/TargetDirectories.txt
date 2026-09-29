@@ -1,0 +1,3 @@
+C:/проект IMaTFE/IMaTFE/build/CMakeFiles/IMaTFE.dir
+C:/проект IMaTFE/IMaTFE/build/CMakeFiles/ALL_BUILD.dir
+C:/проект IMaTFE/IMaTFE/build/CMakeFiles/ZERO_CHECK.dir
