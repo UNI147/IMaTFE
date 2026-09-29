@@ -10,7 +10,13 @@
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\core\Memory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\cpu\CPU.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage1Tests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage2Tests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
