@@ -3,7 +3,7 @@
 #include "engine/core/Memory.h"
 #include "engine/cpu/CPU.h"
 
-#include <iostream>
+#include "TestLog.h"
 #include <string>
 
 namespace imatfe::tests
@@ -17,8 +17,8 @@ struct Runner
 
     void check(bool value, const std::string& name)
     {
-        if (value) { ++passed; std::cout << "  [PASS] " << name << '\n'; }
-        else { ++failed; std::cout << "  [FAIL] " << name << '\n'; }
+        if (value) { ++passed; TestLog::instance() << "  [PASS] " << name << '\n'; }
+        else { ++failed; TestLog::instance() << "  [FAIL] " << name << '\n'; }
     }
 };
 
@@ -181,8 +181,8 @@ void test_cop0(Runner& t)
 
 bool run_stage2_tests()
 {
-    std::cout << "\n=== IMaTFE Stage 2 Verification ===\n";
-    std::cout << "R3000A Interpreter / Decode / Branches / Delay Slots / Exceptions / COP0\n";
+    TestLog::instance() << "\n=== IMaTFE Stage 2 Verification ===\n";
+    TestLog::instance() << "R3000A Interpreter / Decode / Branches / Delay Slots / Exceptions / COP0\n";
 
     Runner r;
     test_alu_and_register_zero(r);
@@ -191,9 +191,9 @@ bool run_stage2_tests()
     test_overflow_and_exceptions(r);
     test_cop0(r);
 
-    std::cout << "\n=== Stage 2 Test Summary ===\n";
-    std::cout << "Passed: " << r.passed << '\n';
-    std::cout << "Failed: " << r.failed << '\n';
+    TestLog::instance() << "\n=== Stage 2 Test Summary ===\n";
+    TestLog::instance() << "Passed: " << r.passed << '\n';
+    TestLog::instance() << "Failed: " << r.failed << '\n';
     return r.failed == 0;
 }
 

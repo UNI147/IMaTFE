@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(IMaTFE
-    VERSION 0.3.0
+    VERSION 0.4.0
     LANGUAGES CXX
 )
 
@@ -15,9 +15,11 @@ add_executable(IMaTFE
     src/engine/core/Memory.cpp
     src/engine/cpu/CPU.cpp
     src/engine/gte/GTE.cpp
+    src/engine/gpu/GPU.cpp
     src/tests/Stage1Tests.cpp
     src/tests/Stage2Tests.cpp
     src/tests/Stage3Tests.cpp
+    src/tests/Stage4Tests.cpp
 )
 
 target_include_directories(IMaTFE PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)

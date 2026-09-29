@@ -1,0 +1,190 @@
+
+=== IMaTFE Stage 1 Verification ===
+Basic Types / Fixed-Point / Addressing / Memory Model
+
+[Basic Types]
+  [PASS] u8 is 8-bit
+  [PASS] s8 is 8-bit
+  [PASS] u16 is 16-bit
+  [PASS] s16 is 16-bit
+  [PASS] u32 is 32-bit
+  [PASS] s32 is 32-bit
+  [PASS] u64 is 64-bit
+  [PASS] s64 is 64-bit
+
+[Addressing / Segments]
+  [PASS] KUSEG lower boundary
+  [PASS] KUSEG upper boundary
+  [PASS] KSEG0 lower boundary
+  [PASS] KSEG0 upper boundary
+  [PASS] KSEG1 lower boundary
+  [PASS] KSEG1 upper boundary
+  [PASS] KSEG2 lower boundary
+  [PASS] KSEG2 upper boundary
+  [PASS] KUSEG physical translation
+  [PASS] KSEG0 physical translation
+  [PASS] KSEG1 physical translation
+  [PASS] 1-byte alignment
+  [PASS] 2-byte alignment
+  [PASS] 4-byte alignment
+  [PASS] misaligned 32-bit address is rejected
+
+[Memory Map / Resolution]
+  [PASS] Main RAM at 00000000h
+  [PASS] Main RAM KSEG0 mirror
+  [PASS] Main RAM KSEG1 mirror
+  [PASS] Main RAM last aligned 32-bit word
+  [PASS] DEV0 base
+  [PASS] DEV0 last aligned word
+  [PASS] Scratchpad base
+  [PASS] Scratchpad last aligned word
+  [PASS] I/O base
+  [PASS] I/O last aligned word
+  [PASS] DEV8 base
+  [PASS] DEV8 last aligned word
+  [PASS] DEV1 base
+  [PASS] DEV1 last aligned word
+  [PASS] BIOS base
+  [PASS] BIOS last aligned word
+  [PASS] Cache control base
+  [PASS] Cache control last byte
+  [PASS] Address immediately after default BIOS is unmapped
+  [PASS] KSEG2 normal address is unmapped
+  [PASS] Unrelated KSEG2 address is unmapped
+
+[Memory Data Path]
+  [PASS] Little-endian byte 0
+  [PASS] Little-endian byte 1
+  [PASS] Little-endian byte 2
+  [PASS] Little-endian byte 3
+  [PASS] 16-bit little-endian read
+  [PASS] 32-bit round-trip
+  [PASS] KSEG0 sees KUSEG RAM data
+  [PASS] KSEG1 sees KUSEG RAM data
+  [PASS] Scratchpad 16-bit round-trip
+  [PASS] I/O storage 8-bit round-trip
+  [PASS] DEV8 32-bit round-trip
+  [PASS] DEV1 32-bit round-trip
+  [PASS] Cache-control storage round-trip
+
+[Memory Error Conditions]
+  [PASS] Unaligned 16-bit read throws
+  [PASS] Unaligned 32-bit read throws
+  [PASS] Unaligned 16-bit write throws
+  [PASS] Unaligned 32-bit write throws
+  [PASS] Unmapped read throws
+  [PASS] Unmapped write throws
+  [PASS] KSEG2 read throws
+  [PASS] KSEG2 write throws
+  [PASS] BIOS write is rejected
+  [PASS] Oversized BIOS mapping is rejected
+
+[Fixed-Point]
+  [PASS] Fixed12 zero raw value
+  [PASS] Fixed12 integer scaling
+  [PASS] Fixed12 float conversion
+  [PASS] Fixed12 addition
+  [PASS] Fixed12 subtraction
+  [PASS] Fixed12 unary minus
+  [PASS] Fixed12 multiplication
+  [PASS] Fixed12 division
+  [PASS] Fixed12 fractional addition
+  [PASS] Fixed12 ordering
+  [PASS] Fixed12 ordering (greater-than)
+  [PASS] Fixed12 inequality
+  [PASS] Fixed12 raw constructor round-trip
+
+=== Stage 1 Test Summary ===
+Passed: 80
+Failed: 0
+
+=== IMaTFE Stage 2 Verification ===
+R3000A Interpreter / Decode / Branches / Delay Slots / Exceptions / COP0
+  [PASS] ADDIU writes register
+  [PASS] ADDIU uses sign-extended immediate
+  [PASS] ADDU computes register result
+  [PASS] R0 remains hard-wired to zero
+  [PASS] Taken branch enters its delay slot
+  [PASS] Branch target is entered after delay slot
+  [PASS] Delay slot executes and branch target executes
+  [PASS] JAL stores PC+8 in RA
+  [PASS] JAL delay slot is executed
+  [PASS] Load result is not visible immediately
+  [PASS] Load delay hides value from the following instruction
+  [PASS] Loaded value is visible after the delay slot
+  [PASS] ADDI overflow raises an exception
+  [PASS] Overflow exception code is 0Ch
+  [PASS] EPC points at the faulting instruction
+  [PASS] BEV=0 exception enters 80000080h
+  [PASS] Faulting ADDI leaves destination unchanged
+  [PASS] Exception in a branch delay slot traps
+  [PASS] BD is set for an exception in a delay slot
+  [PASS] Delay-slot exception EPC points to the branch
+  [PASS] MFC0 leaves the old GPR value visible during the delay
+  [PASS] MFC0 result commits after the following instruction
+  [PASS] MTC0 writes COP0 status
+  [PASS] RFE pops the low interrupt/mode status stack
+
+=== Stage 2 Test Summary ===
+Passed: 24
+Failed: 0
+
+=== Stage 3: GTE ===
+  [PASS] GTE VXY0 low halfword
+  [PASS] GTE VXY0 high halfword
+  [PASS] GTE VZ0 signed halfword
+  [PASS] SXYP write shifts SXY0
+  [PASS] SXYP write shifts SXY1
+  [PASS] SXYP write sets SXY2
+  [PASS] SXYP read mirrors SXY2
+  [PASS] MVMVA X + translation
+  [PASS] MVMVA Y + negative translation
+  [PASS] MVMVA Z + translation
+  [PASS] RTPS produces projected X
+  [PASS] RTPS produces projected Y
+  [PASS] RTPS updates SZ3
+  [PASS] Initial SXY FIFO state
+  [PASS] RTPT preserves V0 as SXY0
+  [PASS] RTPT places V1 in SXY1
+  [PASS] RTPT places V2 in SXY2
+  [PASS] RTPT shifts SZ FIFO for three vertices
+  [PASS] NCLIP triangle area
+  [PASS] OP cross product
+  [PASS] SQR with sf=1
+  [PASS] AVSZ3 computes scaled average
+  [PASS] AVSZ4 computes scaled average
+  [PASS] GPF interpolates vector
+  [PASS] GPL adds MAC base before SAR
+  [PASS] IR1 saturation flag is set
+  [PASS] FLAG error summary bit is set
+  [PASS] IRGB expands 5:5:5 into 0..0x0F80
+  [PASS] ORGB mirrors saturated IR values
+  [PASS] LZCR counts leading zeroes
+  [PASS] LZCR counts leading ones
+  [PASS] FLAG writes are masked to architectural bits
+  [PASS] CPU MTC2 reaches GTE
+  [PASS] CPU MFC2 reads GTE through load-delay path
+  [PASS] RTPS leaves 14 interlock cycles after issue
+  [PASS] MFC2 stays blocked until RTPS completes
+  [PASS] MFC2 retires after GTE completion
+  [PASS] MFC2 result follows normal CPU load delay
+Stage 3 result: 38 passed, 0 failed.
+
+=== Stage 4: GPU ===
+GP0/GP1 / VRAM / Environment / Basic Primitives
+  [PASS] GP1(03h) disables display
+  [PASS] GP1(00h) resets display state
+  [PASS] GPUSTAT reset value
+  [PASS] Drawing area top-left reset
+  [PASS] Drawing area bottom-right reset
+  [PASS] GP0(E3h) sets drawing area origin
+  [PASS] GP0(E4h) sets drawing area extent
+  [PASS] GP0(E6h) mask-set affects drawn pixel
+  [PASS] Rectangle writes first pixel
+  [PASS] Rectangle writes last pixel
+  [PASS] Rectangle uses exclusive right/bottom edge
+  [PASS] Triangle rasterizer fills interior
+  [PASS] Triangle rasterizer rejects outside pixel
+  [PASS] Line primitive includes both endpoints
+  [PASS] GP0(02h) quick fill writes a 16-pixel span
+Stage 4 result: 15 passed, 0 failed.

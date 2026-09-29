@@ -4,7 +4,7 @@
 #include "engine/cpu/CPU.h"
 #include "engine/gte/GTE.h"
 
-#include <iostream>
+#include "TestLog.h"
 #include <string>
 
 namespace imatfe::tests
@@ -17,8 +17,8 @@ struct Runner
     int failed = 0;
     void check(bool v, const std::string& name)
     {
-        if (v) { ++passed; std::cout << "  [PASS] " << name << '\n'; }
-        else { ++failed; std::cout << "  [FAIL] " << name << '\n'; }
+        if (v) { ++passed; TestLog::instance() << "  [PASS] " << name << '\n'; }
+        else { ++failed; TestLog::instance() << "  [FAIL] " << name << '\n'; }
     }
 };
 
@@ -244,14 +244,14 @@ void test_cpu_cop2_and_interlock(Runner& t)
 bool run_stage3_tests()
 {
     Runner t;
-    std::cout << "\n=== Stage 3: GTE ===\n";
+    TestLog::instance() << "\n=== Stage 3: GTE ===\n";
     test_register_file(t);
     test_mvmva(t);
     test_rtps_and_rtpt_fifo(t);
     test_math_commands(t);
     test_flags_and_boundaries(t);
     test_cpu_cop2_and_interlock(t);
-    std::cout << "Stage 3 result: " << t.passed << " passed, " << t.failed << " failed.\n";
+    TestLog::instance() << "Stage 3 result: " << t.passed << " passed, " << t.failed << " failed.\n";
     return t.failed == 0;
 }
 

@@ -3,13 +3,12 @@
 #include "tests/Stage1Tests.h"
 #include "tests/Stage2Tests.h"
 #include "tests/Stage3Tests.h"
+#include "tests/Stage4Tests.h"
 
 #include <iostream>
 
 int main()
 {
-    std::cout << "IMaTFE - Initializing...\n";
-
     imatfe::Engine engine;
 
     if (!engine.initialize())
@@ -17,8 +16,6 @@ int main()
         std::cerr << "IMaTFE - Initialization failed.\n";
         return 1;
     }
-
-    std::cout << "IMaTFE - Initialization successful.\n";
 
     {
         imatfe::core::psx::Memory memory;
@@ -47,8 +44,14 @@ int main()
         return 4;
     }
 
+    if (!imatfe::tests::run_stage4_tests())
+    {
+        std::cerr << "IMaTFE - Stage 4 verification failed.\n";
+        engine.shutdown();
+        return 5;
+    }
+
     engine.shutdown();
 
-    std::cout << "IMaTFE - Shutdown complete.\n";
     return 0;
 }

@@ -7,7 +7,7 @@
 
 #include <cmath>
 #include <functional>
-#include <iostream>
+#include "TestLog.h"
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -34,12 +34,12 @@ struct TestRunner
         if (condition)
         {
             ++passed;
-            std::cout << "  [PASS] " << name << '\n';
+            TestLog::instance() << "  [PASS] " << name << '\n';
         }
         else
         {
             ++failed;
-            std::cout << "  [FAIL] " << name << '\n';
+            TestLog::instance() << "  [FAIL] " << name << '\n';
         }
     }
 
@@ -69,7 +69,7 @@ bool same_resolution(const ResolvedAddress& actual,
 
 void test_types(TestRunner& t)
 {
-    std::cout << "\n[Basic Types]\n";
+    TestLog::instance() << "\n[Basic Types]\n";
     t.check(sizeof(core::u8) == 1, "u8 is 8-bit");
     t.check(sizeof(core::s8) == 1, "s8 is 8-bit");
     t.check(sizeof(core::u16) == 2, "u16 is 16-bit");
@@ -82,7 +82,7 @@ void test_types(TestRunner& t)
 
 void test_address_segments(TestRunner& t)
 {
-    std::cout << "\n[Addressing / Segments]\n";
+    TestLog::instance() << "\n[Addressing / Segments]\n";
 
     t.check(core::psx::is_kuseg(0x00000000u), "KUSEG lower boundary");
     t.check(core::psx::is_kuseg(0x7FFFFFFFu), "KUSEG upper boundary");
@@ -108,7 +108,7 @@ void test_address_segments(TestRunner& t)
 
 void test_memory_resolution(TestRunner& t)
 {
-    std::cout << "\n[Memory Map / Resolution]\n";
+    TestLog::instance() << "\n[Memory Map / Resolution]\n";
     Memory memory;
 
     const auto check_region = [&t, &memory](Address address,
@@ -151,7 +151,7 @@ void test_memory_resolution(TestRunner& t)
 
 void test_memory_data_path(TestRunner& t)
 {
-    std::cout << "\n[Memory Data Path]\n";
+    TestLog::instance() << "\n[Memory Data Path]\n";
     Memory memory;
 
     memory.write32(0x00001000u, 0x12345678u);
@@ -183,7 +183,7 @@ void test_memory_data_path(TestRunner& t)
 
 void test_memory_errors(TestRunner& t)
 {
-    std::cout << "\n[Memory Error Conditions]\n";
+    TestLog::instance() << "\n[Memory Error Conditions]\n";
     Memory memory;
 
     t.check_throws([&] { memory.read16(0x00001001u); }, "Unaligned 16-bit read throws");
@@ -202,7 +202,7 @@ void test_memory_errors(TestRunner& t)
 
 void test_fixed_point(TestRunner& t)
 {
-    std::cout << "\n[Fixed-Point]\n";
+    TestLog::instance() << "\n[Fixed-Point]\n";
 
     const auto zero = Fixed12::from_integer(0);
     const auto one = Fixed12::from_integer(1);
@@ -231,8 +231,8 @@ void test_fixed_point(TestRunner& t)
 
 bool run_stage1_tests()
 {
-    std::cout << "\n=== IMaTFE Stage 1 Verification ===\n";
-    std::cout << "Basic Types / Fixed-Point / Addressing / Memory Model\n";
+    TestLog::instance() << "\n=== IMaTFE Stage 1 Verification ===\n";
+    TestLog::instance() << "Basic Types / Fixed-Point / Addressing / Memory Model\n";
 
     TestRunner runner;
     test_types(runner);
@@ -242,9 +242,9 @@ bool run_stage1_tests()
     test_memory_errors(runner);
     test_fixed_point(runner);
 
-    std::cout << "\n=== Stage 1 Test Summary ===\n";
-    std::cout << "Passed: " << runner.passed << '\n';
-    std::cout << "Failed: " << runner.failed << '\n';
+    TestLog::instance() << "\n=== Stage 1 Test Summary ===\n";
+    TestLog::instance() << "Passed: " << runner.passed << '\n';
+    TestLog::instance() << "Failed: " << runner.failed << '\n';
 
     return runner.failed == 0;
 }
