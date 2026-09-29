@@ -189,24 +189,30 @@ void CPU::step()
     }
 
     in_delay_slot_ = delay_slot;
+    gte_stalled_ = false;
     try
     {
         execute(instruction);
     }
     catch (const std::runtime_error& e)
     {
-        // Architectural CPU exceptions are raised through raise_exception().
-        // Other runtime errors are allowed to surface to the caller.
         if (std::string(e.what()) == "CPU exception")
             throw;
         throw;
     }
 
-    // The load completes after the instruction following it has executed.
+    if (gte_stalled_)
+    {
+        gte_.tick();
+        return;
+    }
+
     if (load_from_previous)
     {
         write_reg(load_from_previous->reg, load_from_previous->value);
     }
+
+    gte_.tick();
 
     if (delay_slot)
     {
@@ -469,11 +475,33 @@ void CPU::execute_cop2(Word instruction)
     if ((state_.status & (1u << 30)) == 0)
         raise_exception(ExceptionCode::CoprocessorUnusable);
 
-    // GTE execution is a separate IMaTFE stage. Keep the CPU-side COP2
-    // encoding/availability behavior here; actual COP2 register semantics are
-    // supplied when the GTE subsystem is introduced.
-    (void)instruction;
-    raise_exception(ExceptionCode::ReservedInstruction);
+    const core::u32 rs = (instruction >> 21) & 0x1Fu;
+    const core::u8 rt = static_cast<core::u8>((instruction >> 16) & 0x1Fu);
+    const core::u8 rd = static_cast<core::u8>((instruction >> 11) & 0x1Fu);
+
+    switch (rs)
+    {
+    case 0x00: // MFC2
+        if (gte_.command_read_hazard()) { gte_stalled_ = true; return; }
+        schedule_load(rt, gte_.read_data(rd));
+        break;
+    case 0x02: // CFC2
+        if (gte_.command_read_hazard()) { gte_stalled_ = true; return; }
+        schedule_load(rt, gte_.read_control(rd));
+        break;
+    case 0x04: // MTC2 -- non-blocking while GTE is running
+        gte_.write_data(rd, read_reg(rt));
+        break;
+    case 0x06: // CTC2 -- non-blocking while GTE is running
+        gte_.write_control(rd, read_reg(rt));
+        break;
+    case 0x10: // COP2 command
+        if (gte_.command_read_hazard()) { gte_stalled_ = true; return; }
+        gte_.execute(instruction);
+        break;
+    default:
+        raise_exception(ExceptionCode::ReservedInstruction);
+    }
 }
 
 void CPU::execute_load_store(Word instruction)

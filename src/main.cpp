@@ -2,6 +2,7 @@
 #include "engine/cpu/CPU.h"
 #include "tests/Stage1Tests.h"
 #include "tests/Stage2Tests.h"
+#include "tests/Stage3Tests.h"
 
 #include <iostream>
 
@@ -37,6 +38,13 @@ int main()
         std::cerr << "IMaTFE - Stage 2 verification failed.\n";
         engine.shutdown();
         return 3;
+    }
+
+    if (!imatfe::tests::run_stage3_tests())
+    {
+        std::cerr << "IMaTFE - Stage 3 verification failed.\n";
+        engine.shutdown();
+        return 4;
     }
 
     engine.shutdown();

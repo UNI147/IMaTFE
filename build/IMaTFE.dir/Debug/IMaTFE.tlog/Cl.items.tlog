@@ -2,5 +2,7 @@ C:\проект IMaTFE\IMaTFE\src\main.cpp;C:\проект IMaTFE\IMaTFE\build\I
 C:\проект IMaTFE\IMaTFE\src\engine\Engine.cpp;C:\проект IMaTFE\IMaTFE\build\IMaTFE.dir\Debug\Engine.obj
 C:\проект IMaTFE\IMaTFE\src\engine\core\Memory.cpp;C:\проект IMaTFE\IMaTFE\build\IMaTFE.dir\Debug\Memory.obj
 C:\проект IMaTFE\IMaTFE\src\engine\cpu\CPU.cpp;C:\проект IMaTFE\IMaTFE\build\IMaTFE.dir\Debug\CPU.obj
+C:\проект IMaTFE\IMaTFE\src\engine\gte\GTE.cpp;C:\проект IMaTFE\IMaTFE\build\IMaTFE.dir\Debug\GTE.obj
 C:\проект IMaTFE\IMaTFE\src\tests\Stage1Tests.cpp;C:\проект IMaTFE\IMaTFE\build\IMaTFE.dir\Debug\Stage1Tests.obj
 C:\проект IMaTFE\IMaTFE\src\tests\Stage2Tests.cpp;C:\проект IMaTFE\IMaTFE\build\IMaTFE.dir\Debug\Stage2Tests.obj
+C:\проект IMaTFE\IMaTFE\src\tests\Stage3Tests.cpp;C:\проект IMaTFE\IMaTFE\build\IMaTFE.dir\Debug\Stage3Tests.obj

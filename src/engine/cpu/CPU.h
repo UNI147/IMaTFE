@@ -2,6 +2,7 @@
 
 #include "engine/core/Memory.h"
 #include "engine/core/Types.h"
+#include "engine/gte/GTE.h"
 
 #include <array>
 #include <optional>
@@ -61,14 +62,18 @@ public:
     void set_reg(Reg index, Word value) noexcept;
 
     bool halted() const noexcept { return halted_; }
+    gte::GTE& gte() noexcept { return gte_; }
+    const gte::GTE& gte() const noexcept { return gte_; }
     void clear_halt() noexcept { halted_ = false; }
 
 private:
     struct PendingLoad { Reg reg; Word value; };
 
     core::psx::Memory& memory_;
+    gte::GTE gte_{};
     State state_{};
     bool halted_ = false;
+    bool gte_stalled_ = false;
 
     std::optional<PendingLoad> pending_load_;
     bool branch_pending_ = false;

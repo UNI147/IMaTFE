@@ -376,8 +376,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\Engine.cpp" />
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\core\Memory.cpp" />
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\cpu\CPU.cpp" />
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\gte\GTE.cpp" />
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage1Tests.cpp" />
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage2Tests.cpp" />
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage3Tests.cpp" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>
