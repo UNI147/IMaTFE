@@ -18,18 +18,6 @@
 			"value" : "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.exe"
 		},
 		{
-			"name" : "CMAKE_BUILD_TYPE",
-			"properties" : 
-			[
-				{
-					"name" : "HELPSTRING",
-					"value" : "No help, variable specified on the command line."
-				}
-			],
-			"type" : "STRING",
-			"value" : "Debug"
-		},
-		{
 			"name" : "CMAKE_CACHEFILE_DIR",
 			"properties" : 
 			[
@@ -639,7 +627,7 @@
 				}
 			],
 			"type" : "STATIC",
-			"value" : "0.0.0"
+			"value" : "0.1.0"
 		},
 		{
 			"name" : "CMAKE_PROJECT_VERSION_MAJOR",
@@ -663,7 +651,7 @@
 				}
 			],
 			"type" : "STATIC",
-			"value" : "0"
+			"value" : "1"
 		},
 		{
 			"name" : "CMAKE_PROJECT_VERSION_PATCH",

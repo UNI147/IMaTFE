@@ -7,6 +7,12 @@
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\Engine.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\core\Memory.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage1Tests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="C:\проект IMaTFE\IMaTFE\CMakeLists.txt" />
