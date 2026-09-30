@@ -190,7 +190,7 @@ GP0/GP1 / VRAM / Environment / Basic Primitives
 Stage 4 result: 15 passed, 0 failed.
 
 === Stage 5: PSX texture rasterization ===
-VRAM / polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping
+VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping
   [PASS] VRAM contains 1024x512 16-bit pixels
   [PASS] VRAM starts cleared
   [PASS] 16-bit pixel round-trip 0
@@ -201,6 +201,10 @@ VRAM / polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / te
   [PASS] Last VRAM pixel is addressable
   [PASS] Out-of-range access is safe
   [PASS] clear_vram fills the framebuffer
+  [PASS] Gouraud triangle interpolates all three 8-bit color channels
+  [PASS] Gouraud interior pixels are not forced to a vertex color
+  [PASS] Flat triangle still uses one color across the primitive
+  [PASS] Gouraud quad rasterizes through its internal triangle split
   [PASS] Triangle fills an interior pixel
   [PASS] Triangle rejects a pixel outside its coverage
   [PASS] Triangle accepts reversed winding
@@ -225,4 +229,4 @@ VRAM / polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / te
   [PASS] Offset primitive does not wrap across VRAM row
   [PASS] Negative primitive coordinates are clipped, not wrapped
   [PASS] Inverted drawing area rejects line pixels
-Stage 5 result: 34 passed, 0 failed.
+Stage 5 result: 38 passed, 0 failed.

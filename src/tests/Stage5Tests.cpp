@@ -61,6 +61,58 @@ void test_framebuffer(Runner& t)
             "clear_vram fills the framebuffer");
 }
 
+void test_gouraud_shading(Runner& t)
+{
+    GPU gpu;
+    unrestricted(gpu);
+
+    // GP0(30h): Gouraud-shaded, untextured triangle.
+    // The command contains vertex 0 color; colors 1 and 2 precede vertices 1 and 2.
+    // The PSX GPU linearly interpolates the per-vertex colors across the polygon.
+    // At pixel (11,11), sampled at its center (11.5,11.5), the barycentric weights
+    // for triangle (10,10)-(20,10)-(10,20) are 0.70, 0.15, 0.15.
+    const Word green = 0x00FF00u;
+    const Word blue = 0xFF0000u;
+
+    gpu.write_gp0(0x300000FFu);
+    gpu.write_gp0(xy(10, 10));
+    gpu.write_gp0(green);
+    gpu.write_gp0(xy(20, 10));
+    gpu.write_gp0(blue);
+    gpu.write_gp0(xy(10, 20));
+
+    t.check(gpu.vram(11, 11) == rgb15(179, 38, 38),
+            "Gouraud triangle interpolates all three 8-bit color channels");
+    t.check(gpu.vram(10, 15) != rgb15(255, 0, 0) &&
+            gpu.vram(10, 15) != rgb15(0, 255, 0) &&
+            gpu.vram(10, 15) != rgb15(0, 0, 255),
+            "Gouraud interior pixels are not forced to a vertex color");
+
+    // Gouraud shading is a polygon attribute; flat triangles keep the command color
+    // over the complete primitive.
+    gpu.clear_vram();
+    gpu.write_gp0(0x200000FFu);
+    gpu.write_gp0(xy(10, 10));
+    gpu.write_gp0(xy(20, 10));
+    gpu.write_gp0(xy(10, 20));
+    t.check(gpu.vram(11, 11) == rgb15(255, 0, 0),
+            "Flat triangle still uses one color across the primitive");
+
+    // Quads are internally split as (1,2,3) and (2,3,4); each triangle keeps
+    // the corresponding Gouraud vertex colors.
+    gpu.clear_vram();
+    gpu.write_gp0(0x380000FFu); // Gouraud quad
+    gpu.write_gp0(xy(10, 10));
+    gpu.write_gp0(green);
+    gpu.write_gp0(xy(20, 10));
+    gpu.write_gp0(blue);
+    gpu.write_gp0(xy(20, 20));
+    gpu.write_gp0(0x00FFFF00u); // yellow vertex 4
+    gpu.write_gp0(xy(10, 20));
+    t.check(gpu.vram(11, 18) != 0,
+            "Gouraud quad rasterizes through its internal triangle split");
+}
+
 void test_triangles(Runner& t)
 {
     GPU gpu;
@@ -301,8 +353,9 @@ bool run_stage5_tests()
 {
     Runner t;
     TestLog::instance() << "\n=== Stage 5: PSX texture rasterization ===\n";
-    TestLog::instance() << "VRAM / polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping\n";
+    TestLog::instance() << "VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping\n";
     test_framebuffer(t);
+    test_gouraud_shading(t);
     test_triangles(t);
     test_rectangles_and_sprites(t);
     test_textured_rectangles(t);
