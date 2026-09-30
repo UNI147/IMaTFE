@@ -190,7 +190,7 @@ GP0/GP1 / VRAM / Environment / Basic Primitives
 Stage 4 result: 15 passed, 0 failed.
 
 === Stage 5: PSX texture rasterization ===
-VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping
+VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping / dithering / blending / STP
   [PASS] VRAM contains 1024x512 16-bit pixels
   [PASS] VRAM starts cleared
   [PASS] 16-bit pixel round-trip 0
@@ -229,4 +229,13 @@ VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit d
   [PASS] Offset primitive does not wrap across VRAM row
   [PASS] Negative primitive coordinates are clipped, not wrapped
   [PASS] Inverted drawing area rejects line pixels
-Stage 5 result: 38 passed, 0 failed.
+  [PASS] Dithering disabled preserves ordinary 5-bit quantization
+  [PASS] 4x4 ordered dither is applied before RGB555 quantization
+  [PASS] Dither matrix repeats every four framebuffer pixels
+  [PASS] Blend mode 0 averages source and destination per 5-bit channel
+  [PASS] Blend mode 1 saturates source plus destination
+  [PASS] Blend mode 2 subtracts source from destination
+  [PASS] Blend mode 3 adds one quarter of source
+  [PASS] STP clear bypasses semi-transparency and writes source directly
+  [PASS] STP set enables semi-transparent blending
+Stage 5 result: 47 passed, 0 failed.

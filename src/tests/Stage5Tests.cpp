@@ -347,13 +347,66 @@ void test_clipping(Runner& t)
     gpu.write_gp0(0x400000FFu); gpu.write_gp0(xy(0, 0)); gpu.write_gp0(xy(20, 0));
     t.check(gpu.vram(0, 0) == 0, "Inverted drawing area rejects line pixels");
 }
+void test_dithering(Runner& t)
+{
+    GPU gpu;
+    unrestricted(gpu);
+    gpu.write_gp0(0xE1000000u); // dithering disabled
+    gpu.write_gp0(0x60080808u); gpu.write_gp0(xy(100, 100)); gpu.write_gp0(0x00010004u);
+    const Half plain = rgb15(8, 8, 8);
+    t.check(gpu.vram(100, 100) == plain && gpu.vram(101, 100) == plain,
+            "Dithering disabled preserves ordinary 5-bit quantization");
+
+    gpu.clear_vram();
+    gpu.write_gp0(0xE1000200u); // GP0(E1h), dither enable
+    gpu.write_gp0(0x60080808u); gpu.write_gp0(xy(100, 100)); gpu.write_gp0(0x00010004u);
+    t.check(gpu.vram(100, 100) == rgb15(0, 0, 0) &&
+            gpu.vram(101, 100) == rgb15(8, 8, 8) &&
+            gpu.vram(102, 100) == rgb15(0, 0, 0) &&
+            gpu.vram(103, 100) == rgb15(8, 8, 8),
+            "4x4 ordered dither is applied before RGB555 quantization");
+    gpu.clear_vram();
+    gpu.write_gp0(0x60080808u); gpu.write_gp0(xy(104, 100)); gpu.write_gp0(0x00010001u);
+    t.check(gpu.vram(104, 100) == gpu.vram(100, 100),
+            "Dither matrix repeats every four framebuffer pixels");
+}
+
+void test_blending_and_stp(Runner& t)
+{
+    const Half background = rgb15(80, 80, 80);
+    const Half foreground = rgb15(40, 40, 40);
+    const auto draw = [&](Half mode, Half texel) {
+        GPU gpu;
+        gpu.set_vram(256, 0, texel); // 15-bit texture page, U=0
+        gpu.set_vram(300, 20, background);
+        set_tpage(gpu, static_cast<Half>((2u << 7) | (mode << 5) | 4u));
+        gpu.write_gp0(0x67000000u); // semi-transparent raw variable textured rectangle
+        gpu.write_gp0(xy(300, 20));
+        gpu.write_gp0(0x00000000u);
+        gpu.write_gp0(0x00010001u);
+        return gpu.vram(300, 20);
+    };
+    t.check(draw(0, static_cast<Half>(foreground | 0x8000u)) == rgb15(60, 60, 60),
+            "Blend mode 0 averages source and destination per 5-bit channel");
+    t.check(draw(1, static_cast<Half>(foreground | 0x8000u)) == rgb15(120, 120, 120),
+            "Blend mode 1 saturates source plus destination");
+    t.check(draw(2, static_cast<Half>(foreground | 0x8000u)) == rgb15(40, 40, 40),
+            "Blend mode 2 subtracts source from destination");
+    t.check(draw(3, static_cast<Half>(foreground | 0x8000u)) == rgb15(90, 90, 90),
+            "Blend mode 3 adds one quarter of source");
+    t.check(draw(0, foreground) == foreground,
+            "STP clear bypasses semi-transparency and writes source directly");
+    t.check(draw(0, static_cast<Half>(foreground | 0x8000u)) != background,
+            "STP set enables semi-transparent blending");
+}
+
 }
 
 bool run_stage5_tests()
 {
     Runner t;
     TestLog::instance() << "\n=== Stage 5: PSX texture rasterization ===\n";
-    TestLog::instance() << "VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping\n";
+    TestLog::instance() << "VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping / dithering / blending / STP\n";
     test_framebuffer(t);
     test_gouraud_shading(t);
     test_triangles(t);
@@ -362,6 +415,8 @@ bool run_stage5_tests()
     test_textured_polygon_uv_and_pages(t);
     test_texture_window(t);
     test_clipping(t);
+    test_dithering(t);
+    test_blending_and_stp(t);
     TestLog::instance() << "Stage 5 result: " << t.passed << " passed, " << t.failed << " failed.\n";
     return t.failed == 0;
 }

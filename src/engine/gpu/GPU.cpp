@@ -40,6 +40,7 @@ void GPU::reset() noexcept
     draw_offset_y_ = 0;
     mask_set_ = false;
     mask_check_ = false;
+    dither_enabled_ = false;
     tpage_ = 0;
     texture_window_mask_x_ = 0;
     texture_window_mask_y_ = 0;
@@ -92,6 +93,23 @@ GPU::Half GPU::rgb24_to_bgr15(Word value) noexcept
     return static_cast<Half>((r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10));
 }
 
+GPU::Half GPU::rgb24_to_bgr15_dithered(Word value, core::s32 x, core::s32 y) const noexcept
+{
+    if (!dither_enabled_)
+        return rgb24_to_bgr15(value);
+
+    // GPU dither matrix, indexed in absolute framebuffer coordinates.
+    static constexpr int matrix[4][4] = {
+        {-4, 0, -3, 1}, {2, -2, 3, -1}, {-3, 1, -4, 0}, {3, -1, 2, -2}
+    };
+    const int d = matrix[static_cast<unsigned>(y) & 3u][static_cast<unsigned>(x) & 3u];
+    const auto channel = [d](Word rgb, unsigned shift) {
+        return std::clamp(static_cast<int>((rgb >> shift) & 0xFFu) + d, 0, 255);
+    };
+    const int r = channel(value, 0), g = channel(value, 8), b = channel(value, 16);
+    return static_cast<Half>((r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10));
+}
+
 GPU::Word GPU::rgb_components(Word value) noexcept
 {
     return value & 0x00FFFFFFu;
@@ -129,7 +147,7 @@ void GPU::plot(core::s32 x, core::s32 y, Half color) noexcept
 
 void GPU::plot_rgb(core::s32 x, core::s32 y, Word color) noexcept
 {
-    plot(x, y, rgb24_to_bgr15(color));
+    plot(x, y, rgb24_to_bgr15_dithered(color, x, y));
 }
 
 GPU::Half GPU::blend_semi_transparent(Half foreground, Half background) const noexcept
@@ -291,6 +309,7 @@ void GPU::execute_gp0_environment(Word command)
     switch (opcode)
     {
     case 0xE1u:
+        dither_enabled_ = (command & (1u << 9)) != 0;
         status_ = (status_ & 0xFFFFE000u) | (command & 0x1FFFu);
         tpage_ = static_cast<core::u16>(command & 0x1FFFu);
         break;
@@ -560,7 +579,7 @@ void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word c
             if (gouraud)
                 plot_semi(x, y, interpolate_rgb(ca, cb, cc, w0, w1, w2), semi);
             else
-                plot_semi(x, y, rgb24_to_bgr15(ca), semi);
+                plot_semi(x, y, rgb24_to_bgr15_dithered(ca, x, y), semi);
         }
     }
 }
@@ -610,7 +629,7 @@ void GPU::raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Wor
 {
     for (core::s32 y = 0; y < height; ++y)
         for (core::s32 x = 0; x < width; ++x)
-            plot_semi(origin.x + x, origin.y + y, rgb24_to_bgr15(color), semi);
+            plot_semi(origin.x + x, origin.y + y, rgb24_to_bgr15_dithered(color, origin.x + x, origin.y + y), semi);
 }
 
 void GPU::execute_gp0_polygon()
@@ -744,6 +763,7 @@ void GPU::gp1_reset() noexcept
     draw_offset_y_ = 0;
     mask_set_ = false;
     mask_check_ = false;
+    dither_enabled_ = false;
     tpage_ = 0;
     texture_window_mask_x_ = 0;
     texture_window_mask_y_ = 0;

@@ -81,6 +81,7 @@ private:
     core::s32 draw_offset_y_ = 0;
     bool mask_set_ = false;
     bool mask_check_ = false;
+    bool dither_enabled_ = false;
 
     // GPU draw/texture state.  The PSX keeps texture pages and the texture
     // window in GPU state; textured polygons carry their own TPage/CLUT
@@ -108,6 +109,7 @@ private:
     static core::s16 signed16(Word value) noexcept;
     static Vertex unpack_vertex(Word value) noexcept;
     static Half rgb24_to_bgr15(Word value) noexcept;
+    Half rgb24_to_bgr15_dithered(Word value, core::s32 x, core::s32 y) const noexcept;
     static Word rgb_components(Word value) noexcept;
     static Half interpolate_rgb(Word a, Word b, Word c, double wa, double wb, double wc) noexcept;
 
