@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(IMaTFE
-    VERSION 0.5.6
+    VERSION 0.5.7
     LANGUAGES CXX
 )
 

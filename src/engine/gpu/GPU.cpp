@@ -132,6 +132,46 @@ void GPU::plot_rgb(core::s32 x, core::s32 y, Word color) noexcept
     plot(x, y, rgb24_to_bgr15(color));
 }
 
+GPU::Half GPU::blend_semi_transparent(Half foreground, Half background) const noexcept
+{
+    const core::u32 mode = (tpage_ >> 5) & 3u;
+    Half result = 0;
+    for (unsigned shift : {0u, 5u, 10u})
+    {
+        const core::u32 src = (foreground >> shift) & 0x1Fu;
+        const core::u32 dst = (background >> shift) & 0x1Fu;
+        core::u32 value = 0;
+        switch (mode)
+        {
+        case 0: value = (src + dst) >> 1; break;                 // 50% blend
+        case 1: value = std::min(31u, src + dst); break;         // add
+        case 2: value = dst > src ? dst - src : 0u; break;       // subtract
+        case 3: value = std::min(31u, dst + (src >> 2)); break;  // add quarter
+        }
+        result = static_cast<Half>(result | (value << shift));
+    }
+    return result;
+}
+
+void GPU::plot_semi(core::s32 x, core::s32 y, Half color, bool enabled, bool stp) noexcept
+{
+    x += draw_offset_x_;
+    y += draw_offset_y_;
+    if (x < static_cast<core::s32>(draw_left_) || x > static_cast<core::s32>(draw_right_) ||
+        y < static_cast<core::s32>(draw_top_) || y > static_cast<core::s32>(draw_bottom_) ||
+        x < 0 || y < 0 || x >= static_cast<core::s32>(VRAM_WIDTH) || y >= static_cast<core::s32>(VRAM_HEIGHT))
+        return;
+
+    Half& dst = vram_[static_cast<std::size_t>(y) * VRAM_WIDTH + static_cast<std::size_t>(x)];
+    if (mask_check_ && (dst & 0x8000u) != 0)
+        return;
+    if (enabled && stp)
+        color = blend_semi_transparent(color, dst);
+    if (mask_set_)
+        color = static_cast<Half>(color | 0x8000u);
+    dst = color;
+}
+
 void GPU::write_gp0(Word value)
 {
     if (packet_kind_ == PacketKind::None)
@@ -400,7 +440,7 @@ GPU::Half GPU::modulate_texture(Half texel, Word color) const noexcept
 void GPU::raster_textured_triangle(Vertex a, Vertex b, Vertex c,
                                    TexCoord ua, TexCoord ub, TexCoord uc,
                                    Word ca, Word cb, Word cc,
-                                   bool gouraud, const TextureInfo& texture)
+                                   bool gouraud, bool semi, const TextureInfo& texture)
 {
     const double area = edge(a, b, static_cast<double>(c.x), static_cast<double>(c.y));
     if (area == 0.0)
@@ -457,13 +497,13 @@ void GPU::raster_textured_triangle(Vertex a, Vertex b, Vertex c,
                     : ca;
                 out = modulate_texture(texel, color);
             }
-            plot(x, y, out);
+            plot_semi(x, y, out, semi, (texel & 0x8000u) != 0);
         }
     }
 }
 
 void GPU::raster_textured_rectangle(Vertex origin, TexCoord uv, core::s32 width, core::s32 height,
-                                    const TextureInfo& texture)
+                                    const TextureInfo& texture, bool semi)
 {
     for (core::s32 y = 0; y < height; ++y)
     {
@@ -476,12 +516,12 @@ void GPU::raster_textured_rectangle(Vertex origin, TexCoord uv, core::s32 width,
             Half out = texel;
             if (!texture.raw)
                 out = modulate_texture(texel, rgb_components(packet_command_));
-            plot(origin.x + x, origin.y + y, out);
+            plot_semi(origin.x + x, origin.y + y, out, semi, (texel & 0x8000u) != 0);
         }
     }
 }
 
-void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word cc, bool gouraud)
+void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word cc, bool gouraud, bool semi)
 {
     const double area = edge(a, b, static_cast<double>(c.x), static_cast<double>(c.y));
     if (area == 0.0)
@@ -518,9 +558,9 @@ void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word c
             if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0)
                 continue;
             if (gouraud)
-                plot(x, y, interpolate_rgb(ca, cb, cc, w0, w1, w2));
+                plot_semi(x, y, interpolate_rgb(ca, cb, cc, w0, w1, w2), semi);
             else
-                plot_rgb(x, y, ca);
+                plot_semi(x, y, rgb24_to_bgr15(ca), semi);
         }
     }
 }
@@ -566,11 +606,11 @@ void GPU::raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud)
     }
 }
 
-void GPU::raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Word color)
+void GPU::raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Word color, bool semi)
 {
     for (core::s32 y = 0; y < height; ++y)
         for (core::s32 x = 0; x < width; ++x)
-            plot_rgb(origin.x + x, origin.y + y, color);
+            plot_semi(origin.x + x, origin.y + y, rgb24_to_bgr15(color), semi);
 }
 
 void GPU::execute_gp0_polygon()
@@ -580,6 +620,7 @@ void GPU::execute_gp0_polygon()
     const bool gouraud = (command & (1u << 28)) != 0;
     const bool textured = (command & (1u << 26)) != 0;
     const bool raw_texture = (command & (1u << 24)) != 0;
+    const bool semi = (command & (1u << 25)) != 0;
     const std::size_t vertices = quad ? 4 : 3;
 
     std::array<Vertex, 4> v{};
@@ -608,18 +649,21 @@ void GPU::execute_gp0_polygon()
 
     if (!textured)
     {
-        raster_triangle(v[0], v[1], v[2], c[0], c[1], c[2], gouraud);
+        raster_triangle(v[0], v[1], v[2], c[0], c[1], c[2], gouraud, semi);
         if (quad)
-            raster_triangle(v[1], v[2], v[3], c[1], c[2], c[3], gouraud);
+            raster_triangle(v[1], v[2], v[3], c[1], c[2], c[3], gouraud, semi);
         return;
     }
 
     texture.raw = raw_texture;
+    const core::u16 previous_tpage = tpage_;
+    tpage_ = texture.tpage;
     raster_textured_triangle(v[0], v[1], v[2], uv[0], uv[1], uv[2],
-                             c[0], c[1], c[2], gouraud, texture);
+                             c[0], c[1], c[2], gouraud, semi, texture);
     if (quad)
         raster_textured_triangle(v[1], v[2], v[3], uv[1], uv[2], uv[3],
-                                 c[1], c[2], c[3], gouraud, texture);
+                                 c[1], c[2], c[3], gouraud, semi, texture);
+    tpage_ = previous_tpage;
 }
 
 void GPU::execute_gp0_line()
@@ -645,6 +689,7 @@ void GPU::execute_gp0_rectangle()
     const Word size_code = (command >> 27) & 3u;
     const bool textured = (command & (1u << 26)) != 0;
     const bool raw_texture = (command & (1u << 24)) != 0;
+    const bool semi = (command & (1u << 25)) != 0;
     const Vertex origin = unpack_vertex(gp0_packet_[1]);
     core::s32 width = 0;
     core::s32 height = 0;
@@ -662,7 +707,7 @@ void GPU::execute_gp0_rectangle()
 
     if (!textured)
     {
-        raster_rectangle(origin, width, height, rgb_components(command));
+        raster_rectangle(origin, width, height, rgb_components(command), semi);
         return;
     }
 
@@ -673,7 +718,7 @@ void GPU::execute_gp0_rectangle()
     texture.raw = raw_texture;
     const TexCoord uv{static_cast<core::u8>(uv_word & 0xFFu),
                       static_cast<core::u8>((uv_word >> 8) & 0xFFu)};
-    raster_textured_rectangle(origin, uv, width, height, texture);
+    raster_textured_rectangle(origin, uv, width, height, texture, semi);
 }
 
 void GPU::write_gp1(Word value)

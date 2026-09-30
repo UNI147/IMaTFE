@@ -130,18 +130,20 @@ private:
     Half fetch_clut_color(core::u8 index, const TextureInfo& info) const noexcept;
     Half sample_texture(TexCoord uv, const TextureInfo& info) const noexcept;
     Half modulate_texture(Half texel, Word color) const noexcept;
+    Half blend_semi_transparent(Half foreground, Half background) const noexcept;
+    void plot_semi(core::s32 x, core::s32 y, Half color, bool enabled, bool stp = true) noexcept;
 
     void plot(core::s32 x, core::s32 y, Half color) noexcept;
     void plot_rgb(core::s32 x, core::s32 y, Word color) noexcept;
-    void raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word cc, bool gouraud);
+    void raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word cc, bool gouraud, bool semi);
     void raster_textured_triangle(Vertex a, Vertex b, Vertex c,
                                   TexCoord ua, TexCoord ub, TexCoord uc,
                                   Word ca, Word cb, Word cc,
-                                  bool gouraud, const TextureInfo& texture);
+                                  bool gouraud, bool semi, const TextureInfo& texture);
     void raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud);
-    void raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Word color);
+    void raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Word color, bool semi);
     void raster_textured_rectangle(Vertex origin, TexCoord uv, core::s32 width, core::s32 height,
-                                   const TextureInfo& texture);
+                                   const TextureInfo& texture, bool semi);
 };
 
 } // namespace imatfe::gpu
