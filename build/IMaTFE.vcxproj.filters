@@ -19,6 +19,12 @@
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\gpu\GPU.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\dma\DMA.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\engine\bus\PSXBus.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage1Tests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -32,6 +38,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage5Tests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\проект IMaTFE\IMaTFE\src\tests\Stage6Tests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

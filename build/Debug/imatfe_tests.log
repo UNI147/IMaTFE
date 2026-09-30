@@ -239,3 +239,25 @@ VRAM / flat + Gouraud polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit d
   [PASS] STP clear bypasses semi-transparency and writes source directly
   [PASS] STP set enables semi-transparent blending
 Stage 5 result: 47 passed, 0 failed.
+
+=== Stage 6: DMA / system bus / GPU transfers ===
+DMA channels / OTC / linked lists / DPCR priority / DICR IRQ / CPU-visible GPU I/O
+  [PASS] DMA transfers RAM words to a device endpoint
+  [PASS] DMA channel clears start after transfer completion
+  [PASS] DMA honours the MADR decrement step
+  [PASS] DMA6 OTC writes a backwards linked list ending in FFFFFFh
+  [PASS] CPU-visible DMA2 linked-list traffic reaches GPU GP0
+  [PASS] GPU linked-list DMA terminates on FFFFFFh
+  [PASS] CPU reads and writes DPCR through the system bus
+  [PASS] CPU GP0 writes use the same GPU instance as DMA2
+  [PASS] DMA completion asserts DICR master IRQ when unmasked
+  [PASS] DMA completion flag is write-one-to-clear
+  [PASS] DMA arbiter selects the highest-priority waiting channel
+  [PASS] DMA SyncMode 1 waits for a peripheral request
+  [PASS] DMA SyncMode 1 completes a requested block and raises per-block IRQ
+  [PASS] DMA SyncMode 1 completes the final requested block
+  [PASS] DMA rejects a main-RAM address outside the 2 MiB bus window
+  [PASS] DMA becomes the active master of the shared main bus
+  [PASS] CPU RAM access stalls behind DMA and resumes after DMA completion
+  [PASS] DMA channels 0/1/3/4/5 are connected through endpoint wiring
+Stage 6 result: 18 passed, 0 failed.

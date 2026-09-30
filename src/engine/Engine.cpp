@@ -5,8 +5,8 @@ namespace imatfe
 
 bool Engine::initialize()
 {
+    bus_.reset();
     initialized_ = true;
-
     return true;
 }
 

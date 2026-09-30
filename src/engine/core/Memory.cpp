@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <limits>
+#include <utility>
 
 namespace imatfe::core::psx
 {
@@ -115,9 +116,59 @@ void Memory::write(Address address, T value)
 
 u8 Memory::read8(Address address) const { return read<u8>(address); }
 u16 Memory::read16(Address address) const { return read<u16>(address); }
-u32 Memory::read32(Address address) const { return read<u32>(address); }
+u32 Memory::read32(Address address) const
+{
+    const auto r = resolve(address);
+    if (r.region == MemoryRegion::Io && io_read32_ && (address & 3u) == 0)
+        return io_read32_(address);
+    return read<u32>(address);
+}
 void Memory::write8(Address address, u8 value) { write<u8>(address, value); }
 void Memory::write16(Address address, u16 value) { write<u16>(address, value); }
-void Memory::write32(Address address, u32 value) { write<u32>(address, value); }
+void Memory::write32(Address address, u32 value)
+{
+    const auto r = resolve(address);
+    if (r.region == MemoryRegion::Io && io_write32_ && (address & 3u) == 0)
+    {
+        io_write32_(address, value);
+        return;
+    }
+    write<u32>(address, value);
+}
+
+void Memory::set_io_callbacks(IoRead32 read32, IoWrite32 write32)
+{
+    io_read32_ = std::move(read32);
+    io_write32_ = std::move(write32);
+}
+
+u32 Memory::read_io_raw32(Address address) const noexcept
+{
+    if (address < IO_BASE || address + 4u > IO_BASE + io_.size() || (address & 3u) != 0)
+        return 0;
+    const std::size_t offset = static_cast<std::size_t>(address - IO_BASE);
+    return static_cast<u32>(io_[offset]) |
+           (static_cast<u32>(io_[offset + 1]) << 8) |
+           (static_cast<u32>(io_[offset + 2]) << 16) |
+           (static_cast<u32>(io_[offset + 3]) << 24);
+}
+
+void Memory::write_io_raw32(Address address, u32 value) noexcept
+{
+    if (address < IO_BASE || address + 4u > IO_BASE + io_.size() || (address & 3u) != 0)
+        return;
+    const std::size_t offset = static_cast<std::size_t>(address - IO_BASE);
+    io_[offset] = static_cast<u8>(value);
+    io_[offset + 1] = static_cast<u8>(value >> 8);
+    io_[offset + 2] = static_cast<u8>(value >> 16);
+    io_[offset + 3] = static_cast<u8>(value >> 24);
+}
+
+void Memory::set_dma_irq(bool asserted) noexcept
+{
+    // I_STAT bit 3 is DMA IRQ. I_STAT is write-to-clear through CPU writes;
+    // the DMA device only raises the source flag here.
+    if (asserted) io_[0x70u] |= static_cast<u8>(1u << 3);
+}
 
 } // namespace imatfe::core::psx

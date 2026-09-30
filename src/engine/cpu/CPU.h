@@ -7,6 +7,8 @@
 #include <array>
 #include <optional>
 
+namespace imatfe::bus { class PSXBus; }
+
 namespace imatfe::cpu
 {
 
@@ -51,6 +53,7 @@ public:
     };
 
     explicit CPU(core::psx::Memory& memory);
+    explicit CPU(bus::PSXBus& bus);
 
     void reset(Word pc = 0xBFC00000u);
     void step();
@@ -70,6 +73,7 @@ private:
     struct PendingLoad { Reg reg; Word value; };
 
     core::psx::Memory& memory_;
+    bus::PSXBus* bus_ = nullptr;
     gte::GTE gte_{};
     State state_{};
     bool halted_ = false;

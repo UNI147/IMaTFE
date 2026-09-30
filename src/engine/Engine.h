@@ -1,5 +1,7 @@
 #pragma once
 
+#include "engine/bus/PSXBus.h"
+
 namespace imatfe
 {
 
@@ -15,7 +17,11 @@ public:
     bool initialize();
     void shutdown();
 
+    bus::PSXBus& bus() noexcept { return bus_; }
+    const bus::PSXBus& bus() const noexcept { return bus_; }
+
 private:
+    bus::PSXBus bus_;
     bool initialized_ = false;
 };
 

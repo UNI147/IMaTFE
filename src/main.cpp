@@ -5,6 +5,7 @@
 #include "tests/Stage3Tests.h"
 #include "tests/Stage4Tests.h"
 #include "tests/Stage5Tests.h"
+#include "tests/Stage6Tests.h"
 
 #include <iostream>
 
@@ -19,8 +20,7 @@ int main()
     }
 
     {
-        imatfe::core::psx::Memory memory;
-        imatfe::cpu::CPU cpu(memory);
+        imatfe::cpu::CPU cpu(engine.bus());
         cpu.reset(0x80000000u);
     }
 
@@ -57,6 +57,13 @@ int main()
         std::cerr << "IMaTFE - Stage 5 verification failed.\n";
         engine.shutdown();
         return 6;
+    }
+
+    if (!imatfe::tests::run_stage6_tests())
+    {
+        std::cerr << "IMaTFE - Stage 6 verification failed.\n";
+        engine.shutdown();
+        return 7;
     }
 
     engine.shutdown();

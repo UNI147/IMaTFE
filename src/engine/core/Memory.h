@@ -8,6 +8,7 @@
 #include <span>
 #include <stdexcept>
 #include <vector>
+#include <functional>
 
 namespace imatfe::core::psx
 {
@@ -35,6 +36,8 @@ struct ResolvedAddress
 class Memory final
 {
 public:
+    using IoRead32 = std::function<u32(Address)>;
+    using IoWrite32 = std::function<void(Address, u32)>;
     explicit Memory(std::size_t bios_size = BIOS_MAX_SIZE);
 
     u8  read8 (Address address) const;
@@ -46,6 +49,13 @@ public:
     void write32(Address address, u32 value);
 
     ResolvedAddress resolve(Address address) const noexcept;
+
+    // Peripheral hooks let the CPU-visible I/O window be backed by actual
+    // devices instead of a detached byte array.
+    void set_io_callbacks(IoRead32 read32, IoWrite32 write32);
+    void set_dma_irq(bool asserted) noexcept;
+    u32 read_io_raw32(Address address) const noexcept;
+    void write_io_raw32(Address address, u32 value) noexcept;
 
     std::span<const u8> main_ram() const noexcept { return main_ram_; }
     std::span<u8>       main_ram()       noexcept { return main_ram_; }
@@ -70,6 +80,8 @@ private:
     std::vector<u8> dev1_;
     std::vector<u8> bios_;
     std::array<u8, 0x100> cache_control_{};
+    IoRead32 io_read32_;
+    IoWrite32 io_write32_;
 };
 
 } // namespace imatfe::core::psx

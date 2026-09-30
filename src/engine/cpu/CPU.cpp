@@ -1,4 +1,5 @@
 #include "CPU.h"
+#include "engine/bus/PSXBus.h"
 
 #include <limits>
 #include <stdexcept>
@@ -8,6 +9,11 @@ namespace imatfe::cpu
 {
 
 CPU::CPU(core::psx::Memory& memory) : memory_(memory)
+{
+    reset();
+}
+
+CPU::CPU(bus::PSXBus& bus) : memory_(bus.memory()), bus_(&bus)
 {
     reset();
 }
@@ -118,42 +124,42 @@ void CPU::schedule_branch(Word target) noexcept
 
 CPU::Word CPU::read_memory8(Word address)
 {
-    try { return memory_.read8(address); }
+    try { return bus_ ? bus_->cpu_read8(address) : memory_.read8(address); }
     catch (const std::runtime_error&) { raise_exception(ExceptionCode::AdEL, address, true); }
     catch (const std::out_of_range&) { raise_exception(ExceptionCode::BusErrorData); }
 }
 
 CPU::Word CPU::read_memory16(Word address)
 {
-    try { return memory_.read16(address); }
+    try { return bus_ ? bus_->cpu_read16(address) : memory_.read16(address); }
     catch (const std::runtime_error&) { raise_exception(ExceptionCode::AdEL, address, true); }
     catch (const std::out_of_range&) { raise_exception(ExceptionCode::BusErrorData); }
 }
 
 CPU::Word CPU::read_memory32(Word address)
 {
-    try { return memory_.read32(address); }
+    try { return bus_ ? bus_->cpu_read32(address) : memory_.read32(address); }
     catch (const std::runtime_error&) { raise_exception(ExceptionCode::AdEL, address, true); }
     catch (const std::out_of_range&) { raise_exception(ExceptionCode::BusErrorData); }
 }
 
 void CPU::write_memory8(Word address, Word value)
 {
-    try { memory_.write8(address, static_cast<core::u8>(value)); }
+    try { if (bus_) bus_->cpu_write8(address, static_cast<core::u8>(value)); else memory_.write8(address, static_cast<core::u8>(value)); }
     catch (const std::runtime_error&) { raise_exception(ExceptionCode::AdES, address, true); }
     catch (const std::out_of_range&) { raise_exception(ExceptionCode::BusErrorData); }
 }
 
 void CPU::write_memory16(Word address, Word value)
 {
-    try { memory_.write16(address, static_cast<core::u16>(value)); }
+    try { if (bus_) bus_->cpu_write16(address, static_cast<core::u16>(value)); else memory_.write16(address, static_cast<core::u16>(value)); }
     catch (const std::runtime_error&) { raise_exception(ExceptionCode::AdES, address, true); }
     catch (const std::out_of_range&) { raise_exception(ExceptionCode::BusErrorData); }
 }
 
 void CPU::write_memory32(Word address, Word value)
 {
-    try { memory_.write32(address, value); }
+    try { if (bus_) bus_->cpu_write32(address, value); else memory_.write32(address, value); }
     catch (const std::runtime_error&) { raise_exception(ExceptionCode::AdES, address, true); }
     catch (const std::out_of_range&) { raise_exception(ExceptionCode::BusErrorData); }
 }
@@ -162,6 +168,17 @@ void CPU::step()
 {
     if (halted_)
         return;
+
+    // External interrupt sources are sampled at instruction boundaries.
+    // DMA is IRQ3 on the PSX, therefore it occupies Cause.IP3 (bit 11).
+    const Word istat = memory_.read32(0x1F801070u);
+    const Word imask = memory_.read32(0x1F801074u);
+    if (istat & (1u << 3))
+        state_.cause |= 1u << 11;
+    else
+        state_.cause &= ~(1u << 11);
+    if ((state_.status & 1u) && (state_.status & (1u << 11)) && (state_.cause & (1u << 11)) && (imask & (1u << 3)))
+        raise_exception(ExceptionCode::Interrupt);
 
     // A pending load becomes visible only after the following instruction has
     // completed. Therefore the instruction currently executing still observes

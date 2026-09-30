@@ -804,7 +804,7 @@ void GPU::gp1_command(Word value) noexcept
     }
 }
 
-GPU::Word GPU::read_gp0()
+GPU::Word GPU::read_gp0() const noexcept
 {
     return 0;
 }

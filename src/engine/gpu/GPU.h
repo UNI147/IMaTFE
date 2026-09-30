@@ -31,7 +31,7 @@ public:
 
     void write_gp0(Word value);
     void write_gp1(Word value);
-    Word read_gp0();
+    Word read_gp0() const noexcept;
     Word read_gp1() const noexcept;
 
     Half vram(std::size_t x, std::size_t y) const noexcept;
