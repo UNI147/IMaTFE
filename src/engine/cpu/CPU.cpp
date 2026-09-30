@@ -15,12 +15,19 @@ CPU::CPU(core::psx::Memory& memory) : memory_(memory)
 
 CPU::CPU(bus::PSXBus& bus) : memory_(bus.memory()), bus_(&bus)
 {
+    bus_->attach_gte(&gte_);
     reset();
+}
+
+CPU::~CPU()
+{
+    if (bus_) bus_->attach_gte(nullptr);
 }
 
 void CPU::reset(Word pc)
 {
     state_ = {};
+    gte_.reset();
     state_.pc = pc;
     state_.prid = 0x00000002u;
     // PSX boot starts in kernel mode with interrupts disabled and BEV set.
@@ -192,7 +199,7 @@ void CPU::step()
     Word instruction = 0;
     try
     {
-        instruction = memory_.read32(current_pc);
+        instruction = bus_ ? bus_->cpu_read32(current_pc) : memory_.read32(current_pc);
     }
     catch (const std::runtime_error&)
     {
@@ -207,6 +214,7 @@ void CPU::step()
 
     in_delay_slot_ = delay_slot;
     gte_stalled_ = false;
+    instruction_cycles_ = 1;
     try
     {
         execute(instruction);
@@ -220,7 +228,8 @@ void CPU::step()
 
     if (gte_stalled_)
     {
-        gte_.tick();
+        if (bus_) bus_->tick();
+        else gte_.tick();
         return;
     }
 
@@ -229,7 +238,8 @@ void CPU::step()
         write_reg(load_from_previous->reg, load_from_previous->value);
     }
 
-    gte_.tick();
+    if (bus_) bus_->tick(instruction_cycles_);
+    else for (unsigned cycle = 0; cycle < instruction_cycles_; ++cycle) gte_.tick();
 
     if (delay_slot)
     {
@@ -325,6 +335,7 @@ void CPU::execute_special(Word instruction)
     case 0x13: state_.lo = read_reg(rs); break;
     case 0x18:
     {
+        instruction_cycles_ = 6;
         const core::s64 result = static_cast<core::s64>(static_cast<core::s32>(read_reg(rs))) * static_cast<core::s64>(static_cast<core::s32>(read_reg(rt)));
         state_.lo = static_cast<Word>(result);
         state_.hi = static_cast<Word>(result >> 32);
@@ -332,6 +343,7 @@ void CPU::execute_special(Word instruction)
     }
     case 0x19:
     {
+        instruction_cycles_ = 6;
         const core::u64 result = static_cast<core::u64>(read_reg(rs)) * static_cast<core::u64>(read_reg(rt));
         state_.lo = static_cast<Word>(result);
         state_.hi = static_cast<Word>(result >> 32);
@@ -339,6 +351,7 @@ void CPU::execute_special(Word instruction)
     }
     case 0x1A:
     {
+        instruction_cycles_ = 36;
         const core::s32 a = static_cast<core::s32>(read_reg(rs));
         const core::s32 b = static_cast<core::s32>(read_reg(rt));
         if (b == 0)
@@ -360,6 +373,7 @@ void CPU::execute_special(Word instruction)
     }
     case 0x1B:
     {
+        instruction_cycles_ = 36;
         const Word a = read_reg(rs), b = read_reg(rt);
         state_.lo = b == 0 ? 0xFFFFFFFFu : a / b;
         state_.hi = b == 0 ? a : a % b;

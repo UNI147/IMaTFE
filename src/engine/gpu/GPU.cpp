@@ -32,6 +32,8 @@ void GPU::reset() noexcept
     display_y1_ = 0x10;
     display_y2_ = 0x100;
     display_mode_ = 0;
+    dma_direction_ = 0;
+    gpu_irq_ = false;
     draw_left_ = 0;
     draw_top_ = 0;
     draw_right_ = 1023;
@@ -41,6 +43,7 @@ void GPU::reset() noexcept
     mask_set_ = false;
     mask_check_ = false;
     dither_enabled_ = false;
+    gpu_busy_cycles_ = 0;
     tpage_ = 0;
     texture_window_mask_x_ = 0;
     texture_window_mask_y_ = 0;
@@ -49,12 +52,45 @@ void GPU::reset() noexcept
     reset_packet();
 }
 
+void GPU::refresh_ready_status() noexcept
+{
+    // GPUSTAT ready/DREQ bits are state-derived.  The source describes bit 26
+    // as "ready for a command word" and bit 28 as the write-FIFO-empty /
+    // execution-ready indication.  The compact command parser has no separate
+    // hardware FIFO, so an incomplete packet represents the parameter phase.
+    status_ &= ~((1u << 24) | (1u << 25) | (1u << 26) | (1u << 27) | (1u << 28) | (3u << 29));
+    if (gpu_irq_)
+        status_ |= 1u << 24;
+
+    const bool command_ready = packet_kind_ == PacketKind::None && gpu_busy_cycles_ == 0;
+    const bool fifo_empty = command_ready;
+    const bool read_fifo_ready = false;
+
+    if (command_ready) status_ |= 1u << 26;
+    if (fifo_empty) status_ |= 1u << 28;
+    if (read_fifo_ready) status_ |= 1u << 27;
+
+    // GP1(04h): 0=off, 1=write FIFO not full, 2=write FIFO empty,
+    // 3=read FIFO ready. DREQ is the selected ready condition.
+    bool dreq = false;
+    switch (dma_direction_ & 3u)
+    {
+    case 1: dreq = true; break; // FIFO is modeled as never full.
+    case 2: dreq = fifo_empty; break;
+    case 3: dreq = read_fifo_ready; break;
+    default: break;
+    }
+    if (dreq) status_ |= 1u << 25;
+    status_ |= static_cast<Word>(dma_direction_ & 3u) << 29;
+}
+
 void GPU::reset_packet() noexcept
 {
     packet_size_ = 0;
     packet_expected_ = 0;
     packet_kind_ = PacketKind::None;
     packet_command_ = 0;
+    refresh_ready_status();
 }
 
 GPU::Half GPU::vram(std::size_t x, std::size_t y) const noexcept
@@ -209,11 +245,21 @@ void GPU::begin_gp0(Word command)
     packet_size_ = 1;
     packet_expected_ = 0;
     packet_kind_ = PacketKind::None;
+    refresh_ready_status();
+    status_ &= ~(1u << 26); // command word has been accepted; parameters follow.
 
     if (opcode == 0x02u)
     {
         packet_kind_ = PacketKind::QuickFill;
         packet_expected_ = 3;
+        return;
+    }
+
+    if (opcode == 0x1Fu)
+    {
+        gpu_irq_ = true;
+        refresh_ready_status();
+        reset_packet();
         return;
     }
 
@@ -237,6 +283,8 @@ void GPU::begin_gp0(Word command)
         packet_expected_ = textured
             ? 1 + vertices * 2 + (gouraud ? vertices - 1 : 0)
             : 1 + vertices + (gouraud ? vertices - 1 : 0);
+        status_ &= ~(1u << 28);
+        refresh_ready_status();
         return;
     }
 
@@ -251,6 +299,8 @@ void GPU::begin_gp0(Word command)
         }
         packet_kind_ = PacketKind::Line;
         packet_expected_ = gouraud ? 4 : 3;
+        status_ &= ~(1u << 28);
+        refresh_ready_status();
         return;
     }
 
@@ -291,6 +341,54 @@ void GPU::consume_packet_word(Word value)
     }
 }
 
+core::u32 GPU::estimate_packet_cycles() const noexcept
+{
+    // The public PSX references document FIFO/status behaviour, but do not
+    // provide a portable per-primitive execution-cycle table.  Stage 7 uses
+    // an explicit deterministic renderer-cost model instead of pretending
+    // that an invented number is measured hardware timing.
+    const core::u32 words = static_cast<core::u32>(packet_expected_ ? packet_expected_ : 1);
+    core::u64 pixels = 0;
+    switch (packet_kind_)
+    {
+    case PacketKind::QuickFill:
+    {
+        const core::u32 size = gp0_packet_[2];
+        pixels = static_cast<core::u64>(size & 0x3FFu) * 16u * ((size >> 16) & 0x1FFu);
+        break;
+    }
+    case PacketKind::Rectangle:
+    {
+        const Word c = gp0_packet_[0];
+        const core::u32 code = (c >> 27) & 3u;
+        if (code == 1) pixels = 1; else if (code == 2) pixels = 64; else if (code == 3) pixels = 256;
+        else { const Word size = (c & (1u << 26)) ? gp0_packet_[3] : gp0_packet_[2]; pixels = static_cast<core::u64>(size & 0x3FFu) * ((size >> 16) & 0x1FFu); }
+        break;
+    }
+    case PacketKind::Line:
+    {
+        const Vertex a = unpack_vertex(gp0_packet_[1]);
+        const Vertex b = unpack_vertex(gp0_packet_[2]);
+        pixels = static_cast<core::u64>(std::max(std::abs(b.x-a.x), std::abs(b.y-a.y))) + 1u;
+        break;
+    }
+    case PacketKind::Polygon:
+    {
+        const Word c = gp0_packet_[0];
+        const bool quad = (c & (1u << 27)) != 0;
+        const std::size_t n = quad ? 4 : 3;
+        std::size_t i = 1; std::array<Vertex,4> v{};
+        const bool gouraud=(c&(1u<<28))!=0, textured=(c&(1u<<26))!=0;
+        for(std::size_t k=0;k<n;++k){ if(gouraud&&k>0) ++i; v[k]=unpack_vertex(gp0_packet_[i++]); if(textured) ++i; }
+        auto area=[](Vertex a,Vertex b,Vertex c)->core::u64 { const core::s64 a2=std::llabs(static_cast<core::s64>(b.x-a.x)*(c.y-a.y)-static_cast<core::s64>(b.y-a.y)*(c.x-a.x)); return static_cast<core::u64>(a2)/2u; };
+        pixels=area(v[0],v[1],v[2]); if(quad) pixels+=area(v[1],v[2],v[3]);
+        break;
+    }
+    default: break;
+    }
+    return std::max<core::u32>(1u, words + static_cast<core::u32>((pixels + 7u) / 8u));
+}
+
 void GPU::execute_packet()
 {
     switch (packet_kind_)
@@ -301,6 +399,19 @@ void GPU::execute_packet()
     case PacketKind::Rectangle: execute_gp0_rectangle(); break;
     case PacketKind::None: break;
     }
+    gpu_busy_cycles_ = estimate_packet_cycles();
+    refresh_ready_status();
+}
+
+void GPU::tick() noexcept
+{
+    if (gpu_busy_cycles_ != 0) --gpu_busy_cycles_;
+    if (gpu_busy_cycles_ == 0) refresh_ready_status();
+}
+
+void GPU::tick(core::u32 cycles) noexcept
+{
+    while (cycles--) tick();
 }
 
 void GPU::execute_gp0_environment(Word command)
@@ -755,6 +866,8 @@ void GPU::gp1_reset() noexcept
     display_y1_ = 0x10;
     display_y2_ = 0x100;
     display_mode_ = 0;
+    dma_direction_ = 0;
+    gpu_irq_ = false;
     draw_left_ = 0;
     draw_top_ = 0;
     draw_right_ = 1023;
@@ -764,6 +877,7 @@ void GPU::gp1_reset() noexcept
     mask_set_ = false;
     mask_check_ = false;
     dither_enabled_ = false;
+    gpu_busy_cycles_ = 0;
     tpage_ = 0;
     texture_window_mask_x_ = 0;
     texture_window_mask_y_ = 0;
@@ -779,8 +893,15 @@ void GPU::gp1_command(Word value) noexcept
     {
     case 0x00u: gp1_reset(); break;
     case 0x01u: reset_packet(); break;
-    case 0x02u: status_ &= ~(1u << 24); break;
+    case 0x02u:
+        gpu_irq_ = false;
+        refresh_ready_status();
+        break;
     case 0x03u: display_enabled_ = (value & 1u) == 0; break;
+    case 0x04u:
+        dma_direction_ = static_cast<core::u8>(value & 3u);
+        refresh_ready_status();
+        break;
     case 0x05u:
         display_x_ = value & 0x3FFu;
         display_y_ = (value >> 10) & 0x1FFu;

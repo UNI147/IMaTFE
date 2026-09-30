@@ -22,7 +22,7 @@ using imatfe::core::Fixed12;
 using imatfe::core::psx::Memory;
 using imatfe::core::psx::MemoryRegion;
 using imatfe::core::psx::ResolvedAddress;
-using imatfe::core::Address;
+using imatfe::core::psx::Address;
 
 struct TestRunner
 {

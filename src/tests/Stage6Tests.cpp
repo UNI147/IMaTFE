@@ -100,6 +100,7 @@ void test_linked_list_gpu(Runner& t)
     // single-node DMA linked list. This exercises the real CPU-visible GPU
     // endpoint rather than a test-only callback.
     memory.write32(0x00000000u, (2u << 24) | 0x00FFFFFFu);
+    memory.write32(0x1F801814u, 0x04000002u); // DMA2: GP0 write-FIFO empty request
     memory.write32(0x1F8010F0u, 1u << (2u * 4u + 3u));
     memory.write32(0x00000004u, 0xE300000Au | (20u << 10));
     memory.write32(0x00000008u, 0xE4000064u | (200u << 10));

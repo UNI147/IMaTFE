@@ -54,6 +54,10 @@ public:
 
     explicit CPU(core::psx::Memory& memory);
     explicit CPU(bus::PSXBus& bus);
+    ~CPU();
+
+    CPU(const CPU&) = delete;
+    CPU& operator=(const CPU&) = delete;
 
     void reset(Word pc = 0xBFC00000u);
     void step();
@@ -78,6 +82,7 @@ private:
     State state_{};
     bool halted_ = false;
     bool gte_stalled_ = false;
+    unsigned instruction_cycles_ = 1;
 
     std::optional<PendingLoad> pending_load_;
     bool branch_pending_ = false;

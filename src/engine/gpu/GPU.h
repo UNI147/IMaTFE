@@ -34,6 +34,13 @@ public:
     Word read_gp0() const noexcept;
     Word read_gp1() const noexcept;
 
+    core::u8 dma_direction() const noexcept { return dma_direction_; }
+    bool dma_request() const noexcept { return (status_ & (1u << 25)) != 0; }
+    void tick() noexcept;
+    void tick(core::u32 cycles) noexcept;
+    bool busy() const noexcept { return gpu_busy_cycles_ != 0; }
+    core::u32 busy_cycles() const noexcept { return gpu_busy_cycles_; }
+
     Half vram(std::size_t x, std::size_t y) const noexcept;
     void set_vram(std::size_t x, std::size_t y, Half value) noexcept;
     void clear_vram(Half color = 0) noexcept;
@@ -41,6 +48,7 @@ public:
     std::span<Half> vram() noexcept { return vram_; }
 
     bool display_enabled() const noexcept { return display_enabled_; }
+    core::u8 display_mode() const noexcept { return display_mode_; }
     std::size_t draw_area_left() const noexcept { return draw_left_; }
     std::size_t draw_area_top() const noexcept { return draw_top_; }
     std::size_t draw_area_right() const noexcept { return draw_right_; }
@@ -72,6 +80,8 @@ private:
     core::u16 display_y1_ = 0x10;
     core::u16 display_y2_ = 0x100;
     core::u8 display_mode_ = 0;
+    core::u8 dma_direction_ = 0;
+    bool gpu_irq_ = false;
 
     std::size_t draw_left_ = 0;
     std::size_t draw_top_ = 0;
@@ -82,6 +92,7 @@ private:
     bool mask_set_ = false;
     bool mask_check_ = false;
     bool dither_enabled_ = false;
+    core::u32 gpu_busy_cycles_ = 0;
 
     // GPU draw/texture state.  The PSX keeps texture pages and the texture
     // window in GPU state; textured polygons carry their own TPage/CLUT
@@ -93,9 +104,11 @@ private:
     core::u8 texture_window_offset_y_ = 0;
 
     void reset_packet() noexcept;
+    void refresh_ready_status() noexcept;
     void begin_gp0(Word command);
     void consume_packet_word(Word value);
     void execute_packet();
+    core::u32 estimate_packet_cycles() const noexcept;
 
     void execute_gp0_environment(Word command);
     void execute_gp0_quick_fill();

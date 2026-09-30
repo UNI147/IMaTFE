@@ -67,7 +67,7 @@ bool DMA::bus_request_pending() const noexcept
 
 void DMA::resume_after_cpu_slot() noexcept
 {
-    unsigned selected = channels_.size();
+    unsigned selected = static_cast<unsigned>(channels_.size());
     unsigned best = std::numeric_limits<unsigned>::max();
     for (unsigned c = 0; c < channels_.size(); ++c)
     {
@@ -246,7 +246,7 @@ bool DMA::eligible(unsigned channel) const noexcept
 
 unsigned DMA::select_channel() const noexcept
 {
-    unsigned selected = channels_.size();
+    unsigned selected = static_cast<unsigned>(channels_.size());
     unsigned best = std::numeric_limits<unsigned>::max();
 
     for (unsigned c = 0; c < channels_.size(); ++c)
