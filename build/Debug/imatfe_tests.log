@@ -211,4 +211,8 @@ Stage 4 result: 15 passed, 0 failed.
   [PASS] 16x16 fixed-size sprite rasterizes
   [PASS] Primitive is clipped to drawing area
   [PASS] Pixels outside drawing area remain untouched
-Stage 5 result: 21 passed, 0 failed.
+  [PASS] Offset is applied before VRAM clipping
+  [PASS] Offset primitive does not wrap across VRAM row
+  [PASS] Negative primitive coordinates are clipped, not wrapped
+  [PASS] Inverted drawing area rejects line pixels
+Stage 5 result: 25 passed, 0 failed.

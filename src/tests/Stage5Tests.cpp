@@ -107,6 +107,27 @@ void test_clipping(Runner& t)
     const Half red = rgb15(255, 0, 0);
     t.check(gpu.vram(5, 6) == red && gpu.vram(7, 8) == red, "Primitive is clipped to drawing area");
     t.check(gpu.vram(4, 6) == 0 && gpu.vram(8, 8) == 0, "Pixels outside drawing area remain untouched");
+
+    // GP0(E5h) is applied before both drawing-area and physical VRAM clipping.
+    gpu.clear_vram();
+    gpu.write_gp0(0xE3000000u);
+    gpu.write_gp0(0xE403FFFFu);
+    gpu.write_gp0(0xE5000001u); // +1 X offset
+    gpu.write_gp0(0x600000FFu); gpu.write_gp0(xy(1022, 10)); gpu.write_gp0(0x00040001u);
+    t.check(gpu.vram(1023, 10) == red, "Offset is applied before VRAM clipping");
+    t.check(gpu.vram(0, 10) == 0, "Offset primitive does not wrap across VRAM row");
+
+    gpu.clear_vram();
+    gpu.write_gp0(0xE3000000u);
+    gpu.write_gp0(0xE4000000u); // only (0,0) is drawable
+    gpu.write_gp0(0xE5000000u);
+    gpu.write_gp0(0x600000FFu); gpu.write_gp0(xy(-1, 0)); gpu.write_gp0(0x00030001u);
+    t.check(gpu.vram(0, 0) == 0, "Negative primitive coordinates are clipped, not wrapped");
+
+    gpu.write_gp0(0xE300000Au); // left=10
+    gpu.write_gp0(0xE4000005u); // right=5: empty/inverted area
+    gpu.write_gp0(0x400000FFu); gpu.write_gp0(xy(0, 0)); gpu.write_gp0(xy(20, 0));
+    t.check(gpu.vram(0, 0) == 0, "Inverted drawing area rejects line pixels");
 }
 }
 

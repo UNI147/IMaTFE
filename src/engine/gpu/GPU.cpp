@@ -348,6 +348,10 @@ void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word c
 
 void GPU::raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud)
 {
+    // Drawing-area coordinates are inclusive. An inverted area is empty.
+    if (draw_left_ > draw_right_ || draw_top_ > draw_bottom_)
+        return;
+
     const core::s32 dx = std::abs(b.x - a.x);
     const core::s32 sx = a.x < b.x ? 1 : -1;
     const core::s32 dy = -std::abs(b.y - a.y);
