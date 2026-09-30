@@ -210,9 +210,12 @@ VRAM / polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / te
   [PASS] 8x8 fixed-size sprite rasterizes
   [PASS] 8x8 sprite has exclusive extent
   [PASS] 16x16 fixed-size sprite rasterizes
-  [PASS] 4-bit texture unpacks four CLUT indices from one halfword
-  [PASS] 8-bit texture unpacks two CLUT indices from one halfword
+  [PASS] 4-bit texture extracts packed indices and crosses halfword boundary
+  [PASS] 4-bit texture index 0 resolves through CLUT entry 0
+  [PASS] CLUT CBA addresses palette X and Y correctly
+  [PASS] 8-bit texture extracts low/high byte indices and resolves CLUT
   [PASS] 15-bit texture addresses one texel per VRAM halfword
+  [PASS] Texture page Y bit selects the 256-row VRAM page
   [PASS] Textured polygon uses UV coordinates and CLUT/TPage attributes
   [PASS] Texture index/color 0000h is treated as transparent
   [PASS] Texture window modifies UV addressing before sampling
@@ -222,4 +225,4 @@ VRAM / polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / te
   [PASS] Offset primitive does not wrap across VRAM row
   [PASS] Negative primitive coordinates are clipped, not wrapped
   [PASS] Inverted drawing area rejects line pixels
-Stage 5 result: 31 passed, 0 failed.
+Stage 5 result: 34 passed, 0 failed.

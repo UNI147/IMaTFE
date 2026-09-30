@@ -106,7 +106,7 @@ void set_tpage(GPU& gpu, Half tpage)
 
 void test_textured_rectangles(Runner& t)
 {
-    // 4-bit CLUT: four indices are packed into one VRAM halfword.
+    // 4-bit CLUT: four indices are packed into one VRAM halfword, low nibble first.
     {
         GPU gpu;
         const Half red = rgb15(255, 0, 0);
@@ -114,16 +114,49 @@ void test_textured_rectangles(Runner& t)
         const Half blue = rgb15(0, 0, 255);
         const Half white = rgb15(255, 255, 255);
         gpu.set_vram(0, 0, 0x4321u);
+        gpu.set_vram(1, 0, 0x0005u); // U=4 crosses into the next packed halfword.
         gpu.set_vram(17, 0, red); gpu.set_vram(18, 0, green);
         gpu.set_vram(19, 0, blue); gpu.set_vram(20, 0, white);
+        gpu.set_vram(21, 0, red);
         set_tpage(gpu, 0); // 4-bit, page origin = (0,0)
         gpu.write_gp0(0x65000000u); // raw textured variable rectangle
         gpu.write_gp0(xy(100, 20));
         gpu.write_gp0(0x00000000u | (1u << 16)); // CLUT x=16, y=0
-        gpu.write_gp0(0x00010004u); // 4x1
+        gpu.write_gp0(0x00010005u); // 5x1
         t.check(gpu.vram(100, 20) == red && gpu.vram(101, 20) == green &&
-                gpu.vram(102, 20) == blue && gpu.vram(103, 20) == white,
-                "4-bit texture unpacks four CLUT indices from one halfword");
+                gpu.vram(102, 20) == blue && gpu.vram(103, 20) == white &&
+                gpu.vram(104, 20) == red,
+                "4-bit texture extracts packed indices and crosses halfword boundary");
+    }
+
+    // Index 0 is a real palette index. It is not implicitly transparent.
+    {
+        GPU gpu;
+        const Half yellow = rgb15(255, 255, 0);
+        gpu.set_vram(0, 0, 0x0000u); // U=0 -> index 0.
+        gpu.set_vram(16, 0, yellow);  // CLUT entry 0.
+        set_tpage(gpu, 0);
+        gpu.write_gp0(0x65000000u);
+        gpu.write_gp0(xy(105, 20));
+        gpu.write_gp0(0x00010000u); // CLUT x=16, y=0
+        gpu.write_gp0(0x00010001u); // 1x1
+        t.check(gpu.vram(105, 20) == yellow,
+                "4-bit texture index 0 resolves through CLUT entry 0");
+    }
+
+    // CBA selects the palette row. X is in 16-halfword units, Y is a VRAM row.
+    {
+        GPU gpu;
+        const Half cyan = rgb15(0, 255, 255);
+        gpu.set_vram(0, 0, 0x0002u);
+        gpu.set_vram(34, 7, cyan); // CBA: x=32, y=7; index 2 -> x=34.
+        set_tpage(gpu, 0);
+        gpu.write_gp0(0x65000000u);
+        gpu.write_gp0(xy(106, 20));
+        gpu.write_gp0(((7u << 6) | 2u) << 16); // CBA X=2*16=32, Y=7
+        gpu.write_gp0(0x00010001u);
+        t.check(gpu.vram(106, 20) == cyan,
+                "CLUT CBA addresses palette X and Y correctly");
     }
 
     // 8-bit CLUT: two indices are packed into one VRAM halfword.
@@ -134,14 +167,13 @@ void test_textured_rectangles(Runner& t)
         gpu.set_vram(64, 0, 0x0201u); // page X base 1 = 64 halfwords
         gpu.set_vram(17, 0, red);
         gpu.set_vram(18, 0, blue);
-        // The 8-bit page with TBX=1 starts at 64 halfwords.
         set_tpage(gpu, static_cast<Half>((1u << 7) | 1u));
         gpu.write_gp0(0x65000000u);
         gpu.write_gp0(xy(110, 20));
         gpu.write_gp0(0x00010000u); // CLUT x=16
         gpu.write_gp0(0x00010002u); // 2x1
         t.check(gpu.vram(110, 20) == red && gpu.vram(111, 20) == blue,
-                "8-bit texture unpacks two CLUT indices from one halfword");
+                "8-bit texture extracts low/high byte indices and resolves CLUT");
     }
 
     // 15-bit direct: one texture pixel per VRAM halfword, no CLUT.
@@ -158,6 +190,21 @@ void test_textured_rectangles(Runner& t)
         gpu.write_gp0(0x00010002u);
         t.check(gpu.vram(120, 20) == a && gpu.vram(121, 20) == b,
                 "15-bit texture addresses one texel per VRAM halfword");
+    }
+
+    // TPage Y bit selects the upper 256-row texture page.
+    {
+        GPU gpu;
+        const Half magenta = rgb15(255, 0, 255);
+        gpu.set_vram(0, 256, 0x0001u);
+        gpu.set_vram(17, 0, magenta);
+        set_tpage(gpu, static_cast<Half>(1u << 4));
+        gpu.write_gp0(0x65000000u);
+        gpu.write_gp0(xy(121, 20));
+        gpu.write_gp0(0x00010000u);
+        gpu.write_gp0(0x00010001u);
+        t.check(gpu.vram(121, 20) == magenta,
+                "Texture page Y bit selects the 256-row VRAM page");
     }
 }
 

@@ -126,6 +126,8 @@ private:
 
     static TextureInfo decode_texture_info(core::u32 uv0, core::u32 uv1, bool raw) noexcept;
     TexCoord apply_texture_window(TexCoord uv) const noexcept;
+    core::u8 fetch_texture_index(TexCoord uv, const TextureInfo& info) const noexcept;
+    Half fetch_clut_color(core::u8 index, const TextureInfo& info) const noexcept;
     Half sample_texture(TexCoord uv, const TextureInfo& info) const noexcept;
     Half modulate_texture(Half texel, Word color) const noexcept;
 

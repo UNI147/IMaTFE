@@ -329,40 +329,57 @@ GPU::TexCoord GPU::apply_texture_window(TexCoord uv) const noexcept
     return uv;
 }
 
+core::u8 GPU::fetch_texture_index(TexCoord uv, const TextureInfo& info) const noexcept
+{
+    const core::u32 page_x = static_cast<core::u32>(info.tpage & 0xFu) * 64u;
+    const core::u32 page_y = ((static_cast<core::u32>(info.tpage) >> 4) & 1u) * 256u;
+    const core::u32 mode = (static_cast<core::u32>(info.tpage) >> 7) & 3u;
+    const core::u32 y = page_y + uv.v;
+
+    if (mode == 0) // 4-bit CLUT: four indices per VRAM halfword.
+    {
+        const core::u32 x = page_x + (static_cast<core::u32>(uv.u) >> 2);
+        const Half packed = vram(x, y);
+        const unsigned shift = (static_cast<unsigned>(uv.u) & 3u) * 4u;
+        return static_cast<core::u8>((packed >> shift) & 0xFu);
+    }
+
+    if (mode == 1) // 8-bit CLUT: two indices per VRAM halfword.
+    {
+        const core::u32 x = page_x + (static_cast<core::u32>(uv.u) >> 1);
+        const Half packed = vram(x, y);
+        const unsigned shift = (static_cast<unsigned>(uv.u) & 1u) * 8u;
+        return static_cast<core::u8>((packed >> shift) & 0xFFu);
+    }
+
+    return 0;
+}
+
+GPU::Half GPU::fetch_clut_color(core::u8 index, const TextureInfo& info) const noexcept
+{
+    // CBA addresses a palette row in VRAM in 16-halfword units.  The index
+    // itself is a halfword offset into that row; it is not multiplied again.
+    const core::u32 clut_x = (static_cast<core::u32>(info.clut) & 0x3Fu) * 16u;
+    const core::u32 clut_y = (static_cast<core::u32>(info.clut) >> 6) & 0x1FFu;
+    return vram(clut_x + static_cast<core::u32>(index), clut_y);
+}
+
 GPU::Half GPU::sample_texture(TexCoord uv, const TextureInfo& info) const noexcept
 {
     uv = apply_texture_window(uv);
+
     const core::u32 page_x = static_cast<core::u32>(info.tpage & 0xFu) * 64u;
-    const core::u32 page_y = ((info.tpage >> 4) & 1u) * 256u + ((info.tpage >> 11) & 1u) * 512u;
-    const core::u32 mode = (info.tpage >> 7) & 3u;
+    const core::u32 page_y = ((static_cast<core::u32>(info.tpage) >> 4) & 1u) * 256u;
+    const core::u32 mode = (static_cast<core::u32>(info.tpage) >> 7) & 3u;
 
-    core::u32 x = page_x;
-    const core::u32 y = page_y + uv.v;
-    core::u16 texel = 0;
-
-    if (mode == 0) // 4-bit CLUT: four texels per VRAM halfword.
+    if (mode == 0 || mode == 1)
     {
-        x += uv.u >> 2;
-        const Half packed = vram(x, y);
-        texel = static_cast<core::u16>((packed >> ((uv.u & 3u) * 4u)) & 0xFu);
-        const core::u32 clut_x = static_cast<core::u32>(info.clut & 0x3Fu) * 16u;
-        const core::u32 clut_y = (info.clut >> 6) & 0x1FFu;
-        return vram(clut_x + texel, clut_y);
-    }
-
-    if (mode == 1) // 8-bit CLUT: two texels per VRAM halfword.
-    {
-        x += uv.u >> 1;
-        const Half packed = vram(x, y);
-        texel = static_cast<core::u16>((packed >> ((uv.u & 1u) * 8u)) & 0xFFu);
-        const core::u32 clut_x = static_cast<core::u32>(info.clut & 0x3Fu) * 16u;
-        const core::u32 clut_y = (info.clut >> 6) & 0x1FFu;
-        return vram(clut_x + texel, clut_y);
+        const core::u8 index = fetch_texture_index(uv, info);
+        return fetch_clut_color(index, info);
     }
 
     // 15-bit direct texture: one texel per VRAM halfword.
-    x += uv.u;
-    return vram(x, y);
+    return vram(page_x + static_cast<core::u32>(uv.u), page_y + uv.v);
 }
 
 GPU::Half GPU::modulate_texture(Half texel, Word color) const noexcept
