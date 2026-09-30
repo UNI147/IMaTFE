@@ -82,6 +82,15 @@ private:
     bool mask_set_ = false;
     bool mask_check_ = false;
 
+    // GPU draw/texture state.  The PSX keeps texture pages and the texture
+    // window in GPU state; textured polygons carry their own TPage/CLUT
+    // attributes in the UV words.
+    core::u16 tpage_ = 0;
+    core::u8 texture_window_mask_x_ = 0;
+    core::u8 texture_window_mask_y_ = 0;
+    core::u8 texture_window_offset_x_ = 0;
+    core::u8 texture_window_offset_y_ = 0;
+
     void reset_packet() noexcept;
     void begin_gp0(Word command);
     void consume_packet_word(Word value);
@@ -102,11 +111,35 @@ private:
     static Word rgb_components(Word value) noexcept;
     static Half interpolate_rgb(Word a, Word b, Word c, double wa, double wb, double wc) noexcept;
 
+    struct TexCoord
+    {
+        core::u8 u = 0;
+        core::u8 v = 0;
+    };
+
+    struct TextureInfo
+    {
+        core::u16 tpage = 0;
+        core::u16 clut = 0;
+        bool raw = false;
+    };
+
+    static TextureInfo decode_texture_info(core::u32 uv0, core::u32 uv1, bool raw) noexcept;
+    TexCoord apply_texture_window(TexCoord uv) const noexcept;
+    Half sample_texture(TexCoord uv, const TextureInfo& info) const noexcept;
+    Half modulate_texture(Half texel, Word color) const noexcept;
+
     void plot(core::s32 x, core::s32 y, Half color) noexcept;
     void plot_rgb(core::s32 x, core::s32 y, Word color) noexcept;
     void raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word cc, bool gouraud);
+    void raster_textured_triangle(Vertex a, Vertex b, Vertex c,
+                                  TexCoord ua, TexCoord ub, TexCoord uc,
+                                  Word ca, Word cb, Word cc,
+                                  bool gouraud, const TextureInfo& texture);
     void raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud);
     void raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Word color);
+    void raster_textured_rectangle(Vertex origin, TexCoord uv, core::s32 width, core::s32 height,
+                                   const TextureInfo& texture);
 };
 
 } // namespace imatfe::gpu

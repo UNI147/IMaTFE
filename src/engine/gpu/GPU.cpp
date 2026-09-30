@@ -40,6 +40,11 @@ void GPU::reset() noexcept
     draw_offset_y_ = 0;
     mask_set_ = false;
     mask_check_ = false;
+    tpage_ = 0;
+    texture_window_mask_x_ = 0;
+    texture_window_mask_y_ = 0;
+    texture_window_offset_x_ = 0;
+    texture_window_offset_y_ = 0;
     reset_packet();
 }
 
@@ -167,16 +172,13 @@ void GPU::begin_gp0(Word command)
         const bool quad = (command & (1u << 27)) != 0;
         const bool gouraud = (command & (1u << 28)) != 0;
         const bool textured = (command & (1u << 26)) != 0;
-        if (textured)
-        {
-            // Texture sampling is deliberately outside Stage 4; reject the packet
-            // rather than pretending that a flat-color path is equivalent.
-            reset_packet();
-            return;
-        }
         packet_kind_ = PacketKind::Polygon;
         const std::size_t vertices = quad ? 4 : 3;
-        packet_expected_ = 1 + vertices + (gouraud ? vertices - 1 : 0);
+        // Polygon packet order is command, then for each vertex: XY, UV when
+        // textured; Gouraud color for the next vertex precedes that vertex.
+        packet_expected_ = textured
+            ? 1 + vertices * 2 + (gouraud ? vertices - 1 : 0)
+            : 1 + vertices + (gouraud ? vertices - 1 : 0);
         return;
     }
 
@@ -197,14 +199,12 @@ void GPU::begin_gp0(Word command)
     if (group == 3u)
     {
         const bool textured = (command & (1u << 26)) != 0;
-        if (textured)
-        {
-            reset_packet();
-            return;
-        }
         const Word size_code = (command >> 27) & 3u;
         packet_kind_ = PacketKind::Rectangle;
-        packet_expected_ = size_code == 0 ? 3 : 2;
+        // command + XY + optional UV + optional variable size
+        packet_expected_ = textured
+            ? (size_code == 0 ? 4 : 3)
+            : (size_code == 0 ? 3 : 2);
         return;
     }
 
@@ -252,6 +252,7 @@ void GPU::execute_gp0_environment(Word command)
     {
     case 0xE1u:
         status_ = (status_ & 0xFFFFE000u) | (command & 0x1FFFu);
+        tpage_ = static_cast<core::u16>(command & 0x1FFFu);
         break;
     case 0xE3u:
         draw_left_ = command & 0x03FFu;
@@ -264,6 +265,12 @@ void GPU::execute_gp0_environment(Word command)
     case 0xE5u:
         draw_offset_x_ = static_cast<core::s32>(command << 21) >> 21;
         draw_offset_y_ = static_cast<core::s32>(command << 10) >> 21;
+        break;
+    case 0xE2u:
+        texture_window_mask_x_ = static_cast<core::u8>(command & 0x1Fu);
+        texture_window_mask_y_ = static_cast<core::u8>((command >> 5) & 0x1Fu);
+        texture_window_offset_x_ = static_cast<core::u8>((command >> 10) & 0x1Fu);
+        texture_window_offset_y_ = static_cast<core::u8>((command >> 15) & 0x1Fu);
         break;
     case 0xE6u:
         mask_set_ = (command & 1u) != 0;
@@ -300,6 +307,161 @@ void GPU::execute_gp0_quick_fill()
                     vram_[static_cast<std::size_t>(dst_y) * VRAM_WIDTH +
                           static_cast<std::size_t>(dst_x)] = pixel;
                 }
+}
+
+GPU::TextureInfo GPU::decode_texture_info(core::u32 uv0, core::u32 uv1, bool raw) noexcept
+{
+    TextureInfo info{};
+    info.clut = static_cast<core::u16>(uv0 >> 16);
+    info.tpage = static_cast<core::u16>(uv1 >> 16);
+    info.raw = raw;
+    return info;
+}
+
+GPU::TexCoord GPU::apply_texture_window(TexCoord uv) const noexcept
+{
+    const core::u32 mask_x = static_cast<core::u32>(texture_window_mask_x_) << 3;
+    const core::u32 mask_y = static_cast<core::u32>(texture_window_mask_y_) << 3;
+    const core::u32 off_x = static_cast<core::u32>(texture_window_offset_x_) << 3;
+    const core::u32 off_y = static_cast<core::u32>(texture_window_offset_y_) << 3;
+    uv.u = static_cast<core::u8>((uv.u & ~mask_x) | (off_x & mask_x));
+    uv.v = static_cast<core::u8>((uv.v & ~mask_y) | (off_y & mask_y));
+    return uv;
+}
+
+GPU::Half GPU::sample_texture(TexCoord uv, const TextureInfo& info) const noexcept
+{
+    uv = apply_texture_window(uv);
+    const core::u32 page_x = static_cast<core::u32>(info.tpage & 0xFu) * 64u;
+    const core::u32 page_y = ((info.tpage >> 4) & 1u) * 256u + ((info.tpage >> 11) & 1u) * 512u;
+    const core::u32 mode = (info.tpage >> 7) & 3u;
+
+    core::u32 x = page_x;
+    const core::u32 y = page_y + uv.v;
+    core::u16 texel = 0;
+
+    if (mode == 0) // 4-bit CLUT: four texels per VRAM halfword.
+    {
+        x += uv.u >> 2;
+        const Half packed = vram(x, y);
+        texel = static_cast<core::u16>((packed >> ((uv.u & 3u) * 4u)) & 0xFu);
+        const core::u32 clut_x = static_cast<core::u32>(info.clut & 0x3Fu) * 16u;
+        const core::u32 clut_y = (info.clut >> 6) & 0x1FFu;
+        return vram(clut_x + texel, clut_y);
+    }
+
+    if (mode == 1) // 8-bit CLUT: two texels per VRAM halfword.
+    {
+        x += uv.u >> 1;
+        const Half packed = vram(x, y);
+        texel = static_cast<core::u16>((packed >> ((uv.u & 1u) * 8u)) & 0xFFu);
+        const core::u32 clut_x = static_cast<core::u32>(info.clut & 0x3Fu) * 16u;
+        const core::u32 clut_y = (info.clut >> 6) & 0x1FFu;
+        return vram(clut_x + texel, clut_y);
+    }
+
+    // 15-bit direct texture: one texel per VRAM halfword.
+    x += uv.u;
+    return vram(x, y);
+}
+
+GPU::Half GPU::modulate_texture(Half texel, Word color) const noexcept
+{
+    if (texel == 0)
+        return 0;
+    const auto mod = [](core::u16 tex, core::u32 c, unsigned shift) -> core::u16 {
+        const core::u32 t = (tex >> shift) & 0x1Fu;
+        const core::u32 v = (c >> (shift == 0 ? 0 : shift == 5 ? 8 : 16)) & 0xFFu;
+        return static_cast<core::u16>(std::min<core::u32>(31u, (t * v) / 128u));
+    };
+    const core::u16 r = mod(texel, color, 0);
+    const core::u16 g = mod(texel, color, 5);
+    const core::u16 b = mod(texel, color, 10);
+    return static_cast<Half>(r | (g << 5) | (b << 10) | (texel & 0x8000u));
+}
+
+void GPU::raster_textured_triangle(Vertex a, Vertex b, Vertex c,
+                                   TexCoord ua, TexCoord ub, TexCoord uc,
+                                   Word ca, Word cb, Word cc,
+                                   bool gouraud, const TextureInfo& texture)
+{
+    const double area = edge(a, b, static_cast<double>(c.x), static_cast<double>(c.y));
+    if (area == 0.0)
+        return;
+
+    const core::s32 min_x = std::max<core::s32>({
+        static_cast<core::s32>(draw_left_) - draw_offset_x_, -draw_offset_x_,
+        static_cast<core::s32>(std::min({a.x, b.x, c.x}))});
+    const core::s32 max_x = std::min<core::s32>({
+        static_cast<core::s32>(draw_right_) - draw_offset_x_,
+        static_cast<core::s32>(VRAM_WIDTH - 1) - draw_offset_x_,
+        static_cast<core::s32>(std::max({a.x, b.x, c.x}))});
+    const core::s32 min_y = std::max<core::s32>({
+        static_cast<core::s32>(draw_top_) - draw_offset_y_, -draw_offset_y_,
+        static_cast<core::s32>(std::min({a.y, b.y, c.y}))});
+    const core::s32 max_y = std::min<core::s32>({
+        static_cast<core::s32>(draw_bottom_) - draw_offset_y_,
+        static_cast<core::s32>(VRAM_HEIGHT - 1) - draw_offset_y_,
+        static_cast<core::s32>(std::max({a.y, b.y, c.y}))});
+    if (min_x > max_x || min_y > max_y)
+        return;
+
+    for (core::s32 y = min_y; y <= max_y; ++y)
+    {
+        for (core::s32 x = min_x; x <= max_x; ++x)
+        {
+            const double px = x + 0.5;
+            const double py = y + 0.5;
+            const double w0 = edge(b, c, px, py) / area;
+            const double w1 = edge(c, a, px, py) / area;
+            const double w2 = edge(a, b, px, py) / area;
+            if (w0 < 0.0 || w1 < 0.0 || w2 < 0.0)
+                continue;
+
+            const auto interp_u = [&](core::u8 av, core::u8 bv, core::u8 cv) -> core::u8 {
+                return static_cast<core::u8>(std::clamp(std::lround(av*w0 + bv*w1 + cv*w2), 0L, 255L));
+            };
+            const TexCoord uv{interp_u(ua.u, ub.u, uc.u), interp_u(ua.v, ub.v, uc.v)};
+            const Half texel = sample_texture(uv, texture);
+            if (texel == 0)
+                continue; // texture color 0000h is fully transparent.
+
+            Half out = texel;
+            if (!texture.raw)
+            {
+                const auto interp_channel = [&](unsigned shift) -> Word {
+                    const double value = ((ca >> shift) & 0xFFu) * w0 +
+                                         ((cb >> shift) & 0xFFu) * w1 +
+                                         ((cc >> shift) & 0xFFu) * w2;
+                    return static_cast<Word>(std::clamp(static_cast<int>(std::lround(value)), 0, 255));
+                };
+                const Word color = gouraud
+                    ? (interp_channel(0) | (interp_channel(8) << 8) | (interp_channel(16) << 16))
+                    : ca;
+                out = modulate_texture(texel, color);
+            }
+            plot(x, y, out);
+        }
+    }
+}
+
+void GPU::raster_textured_rectangle(Vertex origin, TexCoord uv, core::s32 width, core::s32 height,
+                                    const TextureInfo& texture)
+{
+    for (core::s32 y = 0; y < height; ++y)
+    {
+        for (core::s32 x = 0; x < width; ++x)
+        {
+            TexCoord tc{static_cast<core::u8>(uv.u + x), static_cast<core::u8>(uv.v + y)};
+            const Half texel = sample_texture(tc, texture);
+            if (texel == 0)
+                continue;
+            Half out = texel;
+            if (!texture.raw)
+                out = modulate_texture(texel, rgb_components(packet_command_));
+            plot(origin.x + x, origin.y + y, out);
+        }
+    }
 }
 
 void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word cc, bool gouraud)
@@ -399,21 +561,48 @@ void GPU::execute_gp0_polygon()
     const Word command = gp0_packet_[0];
     const bool quad = (command & (1u << 27)) != 0;
     const bool gouraud = (command & (1u << 28)) != 0;
+    const bool textured = (command & (1u << 26)) != 0;
+    const bool raw_texture = (command & (1u << 24)) != 0;
     const std::size_t vertices = quad ? 4 : 3;
 
     std::array<Vertex, 4> v{};
+    std::array<TexCoord, 4> uv{};
     std::array<Word, 4> c{};
     c[0] = rgb_components(command);
+
+    TextureInfo texture{};
     std::size_t index = 1;
     for (std::size_t i = 0; i < vertices; ++i)
     {
         if (gouraud && i > 0)
             c[i] = rgb_components(gp0_packet_[index++]);
         v[i] = unpack_vertex(gp0_packet_[index++]);
+        if (textured)
+        {
+            const Word uv_word = gp0_packet_[index++];
+            uv[i] = {static_cast<core::u8>(uv_word & 0xFFu),
+                     static_cast<core::u8>((uv_word >> 8) & 0xFFu)};
+            if (i == 0)
+                texture.clut = static_cast<core::u16>(uv_word >> 16);
+            else if (i == 1)
+                texture.tpage = static_cast<core::u16>(uv_word >> 16);
+        }
     }
-    raster_triangle(v[0], v[1], v[2], c[0], c[1], c[2], gouraud);
+
+    if (!textured)
+    {
+        raster_triangle(v[0], v[1], v[2], c[0], c[1], c[2], gouraud);
+        if (quad)
+            raster_triangle(v[1], v[2], v[3], c[1], c[2], c[3], gouraud);
+        return;
+    }
+
+    texture.raw = raw_texture;
+    raster_textured_triangle(v[0], v[1], v[2], uv[0], uv[1], uv[2],
+                             c[0], c[1], c[2], gouraud, texture);
     if (quad)
-        raster_triangle(v[1], v[2], v[3], c[1], c[2], c[3], gouraud);
+        raster_textured_triangle(v[1], v[2], v[3], uv[1], uv[2], uv[3],
+                                 c[1], c[2], c[3], gouraud, texture);
 }
 
 void GPU::execute_gp0_line()
@@ -437,6 +626,8 @@ void GPU::execute_gp0_rectangle()
 {
     const Word command = gp0_packet_[0];
     const Word size_code = (command >> 27) & 3u;
+    const bool textured = (command & (1u << 26)) != 0;
+    const bool raw_texture = (command & (1u << 24)) != 0;
     const Vertex origin = unpack_vertex(gp0_packet_[1]);
     core::s32 width = 0;
     core::s32 height = 0;
@@ -445,12 +636,27 @@ void GPU::execute_gp0_rectangle()
     else if (size_code == 3) { width = 16; height = 16; }
     else
     {
-        const Word size = gp0_packet_[2];
+        const Word size = textured ? gp0_packet_[3] : gp0_packet_[2];
         width = static_cast<core::s32>(size & 0x3FFu);
         height = static_cast<core::s32>((size >> 16) & 0x1FFu);
     }
-    if (width > 0 && height > 0)
+    if (width <= 0 || height <= 0)
+        return;
+
+    if (!textured)
+    {
         raster_rectangle(origin, width, height, rgb_components(command));
+        return;
+    }
+
+    const Word uv_word = gp0_packet_[2];
+    TextureInfo texture{};
+    texture.clut = static_cast<core::u16>(uv_word >> 16);
+    texture.tpage = tpage_;
+    texture.raw = raw_texture;
+    const TexCoord uv{static_cast<core::u8>(uv_word & 0xFFu),
+                      static_cast<core::u8>((uv_word >> 8) & 0xFFu)};
+    raster_textured_rectangle(origin, uv, width, height, texture);
 }
 
 void GPU::write_gp1(Word value)
@@ -476,6 +682,11 @@ void GPU::gp1_reset() noexcept
     draw_offset_y_ = 0;
     mask_set_ = false;
     mask_check_ = false;
+    tpage_ = 0;
+    texture_window_mask_x_ = 0;
+    texture_window_mask_y_ = 0;
+    texture_window_offset_x_ = 0;
+    texture_window_offset_y_ = 0;
     reset_packet();
 }
 

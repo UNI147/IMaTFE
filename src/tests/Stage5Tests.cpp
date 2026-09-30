@@ -98,6 +98,125 @@ void test_rectangles_and_sprites(Runner& t)
     t.check(gpu.vram(75, 75) == red && gpu.vram(76, 75) == 0, "16x16 fixed-size sprite rasterizes");
 }
 
+
+void set_tpage(GPU& gpu, Half tpage)
+{
+    gpu.write_gp0(0xE1000000u | static_cast<Word>(tpage));
+}
+
+void test_textured_rectangles(Runner& t)
+{
+    // 4-bit CLUT: four indices are packed into one VRAM halfword.
+    {
+        GPU gpu;
+        const Half red = rgb15(255, 0, 0);
+        const Half green = rgb15(0, 255, 0);
+        const Half blue = rgb15(0, 0, 255);
+        const Half white = rgb15(255, 255, 255);
+        gpu.set_vram(0, 0, 0x4321u);
+        gpu.set_vram(17, 0, red); gpu.set_vram(18, 0, green);
+        gpu.set_vram(19, 0, blue); gpu.set_vram(20, 0, white);
+        set_tpage(gpu, 0); // 4-bit, page origin = (0,0)
+        gpu.write_gp0(0x65000000u); // raw textured variable rectangle
+        gpu.write_gp0(xy(100, 20));
+        gpu.write_gp0(0x00000000u | (1u << 16)); // CLUT x=16, y=0
+        gpu.write_gp0(0x00010004u); // 4x1
+        t.check(gpu.vram(100, 20) == red && gpu.vram(101, 20) == green &&
+                gpu.vram(102, 20) == blue && gpu.vram(103, 20) == white,
+                "4-bit texture unpacks four CLUT indices from one halfword");
+    }
+
+    // 8-bit CLUT: two indices are packed into one VRAM halfword.
+    {
+        GPU gpu;
+        const Half red = rgb15(255, 0, 0);
+        const Half blue = rgb15(0, 0, 255);
+        gpu.set_vram(64, 0, 0x0201u); // page X base 1 = 64 halfwords
+        gpu.set_vram(17, 0, red);
+        gpu.set_vram(18, 0, blue);
+        // The 8-bit page with TBX=1 starts at 64 halfwords.
+        set_tpage(gpu, static_cast<Half>((1u << 7) | 1u));
+        gpu.write_gp0(0x65000000u);
+        gpu.write_gp0(xy(110, 20));
+        gpu.write_gp0(0x00010000u); // CLUT x=16
+        gpu.write_gp0(0x00010002u); // 2x1
+        t.check(gpu.vram(110, 20) == red && gpu.vram(111, 20) == blue,
+                "8-bit texture unpacks two CLUT indices from one halfword");
+    }
+
+    // 15-bit direct: one texture pixel per VRAM halfword, no CLUT.
+    {
+        GPU gpu;
+        const Half a = rgb15(255, 64, 0);
+        const Half b = rgb15(0, 255, 64);
+        gpu.set_vram(256, 0, a);
+        gpu.set_vram(257, 0, b);
+        set_tpage(gpu, static_cast<Half>((2u << 7) | 4u));
+        gpu.write_gp0(0x65000000u);
+        gpu.write_gp0(xy(120, 20));
+        gpu.write_gp0(0x00000000u);
+        gpu.write_gp0(0x00010002u);
+        t.check(gpu.vram(120, 20) == a && gpu.vram(121, 20) == b,
+                "15-bit texture addresses one texel per VRAM halfword");
+    }
+}
+
+void test_textured_polygon_uv_and_pages(Runner& t)
+{
+    GPU gpu;
+    const Half red = rgb15(255, 0, 0);
+    const Half green = rgb15(0, 255, 0);
+    const Half blue = rgb15(0, 0, 255);
+
+    // A 4-bit raw texture triangle uses the CLUT from UV0 and TPage from UV1.
+    gpu.set_vram(0, 0, 0x0321u);
+    gpu.set_vram(0, 0 + 1, 0x0000u);
+    gpu.set_vram(0, 0, 0x0321u);
+    gpu.set_vram(0, 0, 0x0321u);
+    gpu.set_vram(0, 0, 0x0321u);
+    gpu.set_vram(0, 0, 0x0321u);
+    gpu.set_vram(17, 0, red); gpu.set_vram(18, 0, green); gpu.set_vram(19, 0, blue);
+
+    // Command 25h = flat, raw, textured triangle. UV words carry CLUT/TPage.
+    gpu.write_gp0(0x25000000u);
+    gpu.write_gp0(xy(10, 10)); gpu.write_gp0(0x00000000u | (1u << 16));
+    gpu.write_gp0(xy(20, 10)); gpu.write_gp0(0x00000000u | (0u << 16));
+    gpu.write_gp0(xy(10, 20)); gpu.write_gp0(0x00000000u);
+
+    t.check(gpu.vram(11, 11) == red,
+            "Textured polygon uses UV coordinates and CLUT/TPage attributes");
+
+    // Texture color 0000h is transparent and must not overwrite the framebuffer.
+    gpu.set_vram(0, 0, 0x0000u);
+    gpu.set_vram(30, 30, blue);
+    gpu.write_gp0(0x25000000u);
+    gpu.write_gp0(xy(30, 30)); gpu.write_gp0(0x00000000u | (1u << 16));
+    gpu.write_gp0(xy(31, 30)); gpu.write_gp0(0x00000000u);
+    gpu.write_gp0(xy(30, 31)); gpu.write_gp0(0x00000000u);
+    t.check(gpu.vram(30, 30) == blue,
+            "Texture index/color 0000h is treated as transparent");
+}
+
+void test_texture_window(Runner& t)
+{
+    GPU gpu;
+    const Half red = rgb15(255, 0, 0);
+    const Half green = rgb15(0, 255, 0);
+    gpu.set_vram(0, 0, 0x0021u); // U=0 -> index 1, U=1 -> index 2
+    gpu.set_vram(17, 0, red);
+    gpu.set_vram(18, 0, green);
+    set_tpage(gpu, 0);
+
+    // Mask X=1 (8-pixel window), offset X=0: U bit 3 is cleared/repeated.
+    gpu.write_gp0(0xE2000001u);
+    gpu.write_gp0(0x65000000u);
+    gpu.write_gp0(xy(40, 40));
+    gpu.write_gp0(0x00010000u);
+    gpu.write_gp0(0x00010009u);
+    t.check(gpu.vram(40, 40) == red && gpu.vram(41, 40) == green && gpu.vram(48, 40) == red,
+            "Texture window modifies UV addressing before sampling");
+}
+
 void test_clipping(Runner& t)
 {
     GPU gpu;
@@ -134,10 +253,14 @@ void test_clipping(Runner& t)
 bool run_stage5_tests()
 {
     Runner t;
-    TestLog::instance() << "\n=== Stage 5: Basic rasterization ===\n";
+    TestLog::instance() << "\n=== Stage 5: PSX texture rasterization ===\n";
+    TestLog::instance() << "VRAM / polygons / rectangles / 4-bit CLUT / 8-bit CLUT / 15-bit direct / UV / texture window / clipping\n";
     test_framebuffer(t);
     test_triangles(t);
     test_rectangles_and_sprites(t);
+    test_textured_rectangles(t);
+    test_textured_polygon_uv_and_pages(t);
+    test_texture_window(t);
     test_clipping(t);
     TestLog::instance() << "Stage 5 result: " << t.passed << " passed, " << t.failed << " failed.\n";
     return t.failed == 0;
