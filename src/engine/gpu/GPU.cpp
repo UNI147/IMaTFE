@@ -14,6 +14,13 @@ inline double edge(const GPU::Vertex& a, const GPU::Vertex& b, double x, double 
     return (x - a.x) * static_cast<double>(b.y - a.y) -
            (y - a.y) * static_cast<double>(b.x - a.x);
 }
+
+inline core::s32 sign_extend_11(core::u32 value) noexcept
+{
+    const core::u32 bits = value & 0x7FFu;
+    return (bits & 0x400u) ? static_cast<core::s32>(bits | 0xFFFFF800u)
+                           : static_cast<core::s32>(bits);
+}
 }
 
 GPU::GPU() : vram_(VRAM_WIDTH * VRAM_HEIGHT)
@@ -43,7 +50,15 @@ void GPU::reset() noexcept
     mask_set_ = false;
     mask_check_ = false;
     dither_enabled_ = false;
+    draw_to_display_area_ = false;
     gpu_busy_cycles_ = 0;
+    transfer_x_ = transfer_y_ = transfer_width_ = transfer_height_ = 0;
+    transfer_source_x_ = transfer_source_y_ = 0;
+    transfer_destination_x_ = transfer_destination_y_ = 0;
+    transfer_words_remaining_ = transfer_pixel_index_ = 0;
+    read_transfer_pixel_index_ = 0;
+    vram_to_cpu_ = false;
+    gp0_read_latch_ = 0;
     tpage_ = 0;
     texture_window_mask_x_ = 0;
     texture_window_mask_y_ = 0;
@@ -52,7 +67,7 @@ void GPU::reset() noexcept
     reset_packet();
 }
 
-void GPU::refresh_ready_status() noexcept
+void GPU::refresh_ready_status() const noexcept
 {
     // GPUSTAT ready/DREQ bits are state-derived.  The source describes bit 26
     // as "ready for a command word" and bit 28 as the write-FIFO-empty /
@@ -64,7 +79,8 @@ void GPU::refresh_ready_status() noexcept
 
     const bool command_ready = packet_kind_ == PacketKind::None && gpu_busy_cycles_ == 0;
     const bool fifo_empty = command_ready;
-    const bool read_fifo_ready = false;
+    const bool read_fifo_ready = vram_to_cpu_ && read_transfer_pixel_index_ <
+        static_cast<core::u32>(transfer_width_) * transfer_height_;
 
     if (command_ready) status_ |= 1u << 26;
     if (fifo_empty) status_ |= 1u << 28;
@@ -90,6 +106,7 @@ void GPU::reset_packet() noexcept
     packet_expected_ = 0;
     packet_kind_ = PacketKind::None;
     packet_command_ = 0;
+    packet_polyline_ = false;
     refresh_ready_status();
 }
 
@@ -118,7 +135,7 @@ core::s16 GPU::signed16(Word value) noexcept
 
 GPU::Vertex GPU::unpack_vertex(Word value) noexcept
 {
-    return {signed16(value), signed16(value >> 16)};
+    return {sign_extend_11(value), sign_extend_11(value >> 16)};
 }
 
 GPU::Half GPU::rgb24_to_bgr15(Word value) noexcept
@@ -228,6 +245,11 @@ void GPU::plot_semi(core::s32 x, core::s32 y, Half color, bool enabled, bool stp
 
 void GPU::write_gp0(Word value)
 {
+    if (packet_kind_ == PacketKind::CpuToVram && packet_expected_ == 0)
+    {
+        execute_gp0_cpu_to_vram_word(value);
+        return;
+    }
     if (packet_kind_ == PacketKind::None)
     {
         begin_gp0(value);
@@ -248,10 +270,35 @@ void GPU::begin_gp0(Word command)
     refresh_ready_status();
     status_ &= ~(1u << 26); // command word has been accepted; parameters follow.
 
+    if (opcode == 0x80u)
+    {
+        packet_kind_ = PacketKind::VramToVram;
+        packet_expected_ = 4; // command, source, destination, dimensions
+        refresh_ready_status();
+        return;
+    }
+    if (opcode == 0xA0u)
+    {
+        packet_kind_ = PacketKind::CpuToVram;
+        packet_expected_ = 3; // command, destination, dimensions
+        vram_to_cpu_ = false;
+        refresh_ready_status();
+        return;
+    }
+    if (opcode == 0xC0u)
+    {
+        packet_kind_ = PacketKind::VramToCpu;
+        packet_expected_ = 3;
+        vram_to_cpu_ = false;
+        refresh_ready_status();
+        return;
+    }
+
     if (opcode == 0x02u)
     {
         packet_kind_ = PacketKind::QuickFill;
         packet_expected_ = 3;
+        refresh_ready_status();
         return;
     }
 
@@ -292,13 +339,9 @@ void GPU::begin_gp0(Word command)
     {
         const bool polyline = (command & (1u << 27)) != 0;
         const bool gouraud = (command & (1u << 28)) != 0;
-        if (polyline)
-        {
-            reset_packet();
-            return;
-        }
         packet_kind_ = PacketKind::Line;
-        packet_expected_ = gouraud ? 4 : 3;
+        packet_polyline_ = polyline;
+        packet_expected_ = polyline ? gp0_packet_.size() : (gouraud ? 4 : 3);
         status_ &= ~(1u << 28);
         refresh_ready_status();
         return;
@@ -313,6 +356,7 @@ void GPU::begin_gp0(Word command)
         packet_expected_ = textured
             ? (size_code == 0 ? 4 : 3)
             : (size_code == 0 ? 3 : 2);
+        refresh_ready_status();
         return;
     }
 
@@ -328,16 +372,29 @@ void GPU::begin_gp0(Word command)
 
 void GPU::consume_packet_word(Word value)
 {
+    if (packet_polyline_ && (value & 0xF000F000u) == 0x50005000u)
+    {
+        if (packet_size_ >= 3)
+        {
+            execute_gp0_line();
+            gpu_busy_cycles_ = estimate_packet_cycles();
+        }
+        reset_packet();
+        return;
+    }
+
     if (packet_size_ >= gp0_packet_.size())
     {
         reset_packet();
         return;
     }
     gp0_packet_[packet_size_++] = value;
-    if (packet_size_ >= packet_expected_)
+    if (!packet_polyline_ && packet_size_ >= packet_expected_)
     {
         execute_packet();
-        reset_packet();
+        if (packet_kind_ != PacketKind::CpuToVram &&
+            packet_kind_ != PacketKind::VramToCpu)
+            reset_packet();
     }
 }
 
@@ -351,6 +408,14 @@ core::u32 GPU::estimate_packet_cycles() const noexcept
     core::u64 pixels = 0;
     switch (packet_kind_)
     {
+    case PacketKind::VramToVram:
+    {
+        const core::u32 size = gp0_packet_[3];
+        const core::u32 width = (((size & 0xFFFFu) - 1u) & 0x3FFu) + 1u;
+        const core::u32 height = ((((size >> 16) & 0xFFFFu) - 1u) & 0x1FFu) + 1u;
+        pixels = static_cast<core::u64>(width) * height;
+        break;
+    }
     case PacketKind::QuickFill:
     {
         const core::u32 size = gp0_packet_[2];
@@ -367,9 +432,11 @@ core::u32 GPU::estimate_packet_cycles() const noexcept
     }
     case PacketKind::Line:
     {
+        const Word c = gp0_packet_[0];
+        const bool gouraud = (c & (1u << 28)) != 0;
         const Vertex a = unpack_vertex(gp0_packet_[1]);
-        const Vertex b = unpack_vertex(gp0_packet_[2]);
-        pixels = static_cast<core::u64>(std::max(std::abs(b.x-a.x), std::abs(b.y-a.y))) + 1u;
+        const Vertex b = unpack_vertex(gp0_packet_[gouraud ? 3 : 2]);
+        pixels = static_cast<core::u64>(std::max(std::abs(b.x - a.x), std::abs(b.y - a.y))) + 1u;
         break;
     }
     case PacketKind::Polygon:
@@ -394,6 +461,28 @@ void GPU::execute_packet()
     switch (packet_kind_)
     {
     case PacketKind::QuickFill: execute_gp0_quick_fill(); break;
+    case PacketKind::VramToVram:
+        execute_gp0_vram_to_vram();
+        break;
+    case PacketKind::VramToCpu:
+        begin_vram_to_cpu(packet_command_);
+        return;
+    case PacketKind::CpuToVram:
+        transfer_x_ = static_cast<core::u16>(gp0_packet_[1] & 0x3FFu);
+        transfer_y_ = static_cast<core::u16>((gp0_packet_[1] >> 16) & 0x1FFu);
+        {
+            const core::u32 raw_w = gp0_packet_[2] & 0xFFFFu;
+            const core::u32 raw_h = (gp0_packet_[2] >> 16) & 0xFFFFu;
+            transfer_width_ = static_cast<core::u16>(((raw_w - 1u) & 0x3FFu) + 1u);
+            transfer_height_ = static_cast<core::u16>(((raw_h - 1u) & 0x1FFu) + 1u);
+        }
+        transfer_pixel_index_ = 0;
+        transfer_words_remaining_ = (static_cast<core::u32>(transfer_width_) *
+                                      transfer_height_ + 1u) / 2u;
+        packet_size_ = 0;
+        packet_expected_ = 0;
+        refresh_ready_status();
+        return;
     case PacketKind::Polygon:  execute_gp0_polygon(); break;
     case PacketKind::Line:     execute_gp0_line(); break;
     case PacketKind::Rectangle: execute_gp0_rectangle(); break;
@@ -414,6 +503,46 @@ void GPU::tick(core::u32 cycles) noexcept
     while (cycles--) tick();
 }
 
+void GPU::execute_gp0_cpu_to_vram_word(Word value) noexcept
+{
+    const core::u32 total = static_cast<core::u32>(transfer_width_) * transfer_height_;
+    for (unsigned half = 0; half < 2; ++half)
+    {
+        const core::u32 pixel = transfer_pixel_index_++;
+        if (pixel >= total) break;
+        const core::u32 x = (static_cast<core::u32>(transfer_x_) + pixel % transfer_width_) % VRAM_WIDTH;
+        const core::u32 y = (static_cast<core::u32>(transfer_y_) + pixel / transfer_width_) % VRAM_HEIGHT;
+        Half& dst = vram_[y * VRAM_WIDTH + x];
+        if (mask_check_ && (dst & 0x8000u) != 0)
+            continue;
+        Half data = static_cast<Half>(value >> (half * 16u));
+        if (mask_set_)
+            data = static_cast<Half>(data | 0x8000u);
+        dst = data;
+    }
+    if (transfer_words_remaining_ != 0) --transfer_words_remaining_;
+    if (transfer_words_remaining_ == 0) reset_packet();
+}
+
+void GPU::begin_vram_to_cpu(Word command) noexcept
+{
+    (void)command;
+    transfer_x_ = static_cast<core::u16>(gp0_packet_[1] & 0x3FFu);
+    transfer_y_ = static_cast<core::u16>((gp0_packet_[1] >> 16) & 0x1FFu);
+    const core::u32 raw_w = gp0_packet_[2] & 0xFFFFu;
+    const core::u32 raw_h = (gp0_packet_[2] >> 16) & 0xFFFFu;
+    transfer_width_ = static_cast<core::u16>(((raw_w - 1u) & 0x3FFu) + 1u);
+    transfer_height_ = static_cast<core::u16>(((raw_h - 1u) & 0x1FFu) + 1u);
+    read_transfer_pixel_index_ = 0;
+    vram_to_cpu_ = true;
+    packet_size_ = packet_expected_ = 0;
+    packet_kind_ = PacketKind::None;
+    packet_command_ = 0;
+    packet_polyline_ = false;
+    gpu_busy_cycles_ = 0;
+    refresh_ready_status();
+}
+
 void GPU::execute_gp0_environment(Word command)
 {
     const Word opcode = command >> 24;
@@ -421,8 +550,9 @@ void GPU::execute_gp0_environment(Word command)
     {
     case 0xE1u:
         dither_enabled_ = (command & (1u << 9)) != 0;
-        status_ = (status_ & 0xFFFFE000u) | (command & 0x1FFFu);
-        tpage_ = static_cast<core::u16>(command & 0x1FFFu);
+        draw_to_display_area_ = (command & (1u << 10)) != 0;
+        tpage_ = static_cast<core::u16>(command & 0x3FFFu);
+        status_ = (status_ & ~0x1FFFu) | (command & 0x1FFFu);
         break;
     case 0xE3u:
         draw_left_ = command & 0x03FFu;
@@ -433,8 +563,8 @@ void GPU::execute_gp0_environment(Word command)
         draw_bottom_ = (command >> 10) & 0x01FFu;
         break;
     case 0xE5u:
-        draw_offset_x_ = static_cast<core::s32>(command << 21) >> 21;
-        draw_offset_y_ = static_cast<core::s32>(command << 10) >> 21;
+        draw_offset_x_ = sign_extend_11(command);
+        draw_offset_y_ = sign_extend_11(command >> 11);
         break;
     case 0xE2u:
         texture_window_mask_x_ = static_cast<core::u8>(command & 0x1Fu);
@@ -445,6 +575,9 @@ void GPU::execute_gp0_environment(Word command)
     case 0xE6u:
         mask_set_ = (command & 1u) != 0;
         mask_check_ = (command & 2u) != 0;
+        status_ = (status_ & ~((1u << 11) | (1u << 12))) |
+                  (mask_set_ ? (1u << 11) : 0u) |
+                  (mask_check_ ? (1u << 12) : 0u);
         break;
     default:
         break;
@@ -456,27 +589,23 @@ void GPU::execute_gp0_quick_fill()
     const Word color = gp0_packet_[0];
     const Word origin = gp0_packet_[1];
     const Word size = gp0_packet_[2];
-    const core::s32 x0 = static_cast<core::s32>((origin & 0x3FFu) << 4);
+
+    const core::s32 x0 = static_cast<core::s32>(origin & 0x3F0u);
     const core::s32 y0 = static_cast<core::s32>((origin >> 16) & 0x1FFu);
-    const core::s32 width = static_cast<core::s32>((size & 0x3FFu) << 4);
+    const core::s32 width = static_cast<core::s32>(((size & 0x3FFu) + 0xFu) & ~0xFu);
     const core::s32 height = static_cast<core::s32>((size >> 16) & 0x1FFu);
+    if (width == 0 || height == 0)
+        return;
+
     const Half pixel = rgb24_to_bgr15(color);
     for (core::s32 y = 0; y < height; ++y)
         for (core::s32 x = 0; x < width; ++x)
-            if ((x & 0xF) == 0)
-                for (core::s32 xx = 0; xx < 16 && x + xx < width; ++xx)
-                {
-                    // GP0(02h) writes VRAM directly: drawing-area offsets and
-                    // mask-bit test/set do not affect the fill operation.
-                    const core::s32 dst_x = x + xx + x0;
-                    const core::s32 dst_y = y + y0;
-                    if (dst_x < 0 || dst_y < 0 ||
-                        dst_x >= static_cast<core::s32>(VRAM_WIDTH) ||
-                        dst_y >= static_cast<core::s32>(VRAM_HEIGHT))
-                        continue;
-                    vram_[static_cast<std::size_t>(dst_y) * VRAM_WIDTH +
-                          static_cast<std::size_t>(dst_x)] = pixel;
-                }
+        {
+            const core::u32 dst_x = (static_cast<core::u32>(x0 + x)) % VRAM_WIDTH;
+            const core::u32 dst_y = (static_cast<core::u32>(y0 + y)) % VRAM_HEIGHT;
+            // GP0(02h) ignores mask-bit state and drawing-area clipping.
+            vram_[dst_y * VRAM_WIDTH + dst_x] = pixel;
+        }
 }
 
 GPU::TextureInfo GPU::decode_texture_info(core::u32 uv0, core::u32 uv1, bool raw) noexcept
@@ -502,7 +631,8 @@ GPU::TexCoord GPU::apply_texture_window(TexCoord uv) const noexcept
 core::u8 GPU::fetch_texture_index(TexCoord uv, const TextureInfo& info) const noexcept
 {
     const core::u32 page_x = static_cast<core::u32>(info.tpage & 0xFu) * 64u;
-    const core::u32 page_y = ((static_cast<core::u32>(info.tpage) >> 4) & 1u) * 256u;
+    const core::u32 page_y = (((static_cast<core::u32>(info.tpage) >> 4) & 1u) * 256u) +
+                              (((static_cast<core::u32>(info.tpage) >> 11) & 1u) * 512u);
     const core::u32 mode = (static_cast<core::u32>(info.tpage) >> 7) & 3u;
     const core::u32 y = page_y + uv.v;
 
@@ -539,7 +669,8 @@ GPU::Half GPU::sample_texture(TexCoord uv, const TextureInfo& info) const noexce
     uv = apply_texture_window(uv);
 
     const core::u32 page_x = static_cast<core::u32>(info.tpage & 0xFu) * 64u;
-    const core::u32 page_y = ((static_cast<core::u32>(info.tpage) >> 4) & 1u) * 256u;
+    const core::u32 page_y = (((static_cast<core::u32>(info.tpage) >> 4) & 1u) * 256u) +
+                              (((static_cast<core::u32>(info.tpage) >> 11) & 1u) * 512u);
     const core::u32 mode = (static_cast<core::u32>(info.tpage) >> 7) & 3u;
 
     if (mode == 0 || mode == 1)
@@ -639,7 +770,8 @@ void GPU::raster_textured_rectangle(Vertex origin, TexCoord uv, core::s32 width,
     {
         for (core::s32 x = 0; x < width; ++x)
         {
-            TexCoord tc{static_cast<core::u8>(uv.u + x), static_cast<core::u8>(uv.v + y)};
+            TexCoord tc{static_cast<core::u8>(uv.u + ((tpage_ & (1u << 12)) ? -x : x)),
+                          static_cast<core::u8>(uv.v + ((tpage_ & (1u << 13)) ? -y : y))};
             const Half texel = sample_texture(tc, texture);
             if (texel == 0)
                 continue;
@@ -695,15 +827,16 @@ void GPU::raster_triangle(Vertex a, Vertex b, Vertex c, Word ca, Word cb, Word c
     }
 }
 
-void GPU::raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud)
+void GPU::raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud, bool semi)
 {
-    // Drawing-area coordinates are inclusive. An inverted area is empty.
-    if (draw_left_ > draw_right_ || draw_top_ > draw_bottom_)
+    const core::s32 dx_abs = std::abs(b.x - a.x);
+    const core::s32 dy_abs = std::abs(b.y - a.y);
+    if (dx_abs > 1023 || dy_abs > 511)
         return;
 
-    const core::s32 dx = std::abs(b.x - a.x);
+    const core::s32 dx = dx_abs;
     const core::s32 sx = a.x < b.x ? 1 : -1;
-    const core::s32 dy = -std::abs(b.y - a.y);
+    const core::s32 dy = -dy_abs;
     const core::s32 sy = a.y < b.y ? 1 : -1;
     core::s32 err = dx + dy;
     const core::s32 steps = std::max(dx, -dy);
@@ -723,10 +856,10 @@ void GPU::raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud)
             const Word color = lerp(ca, cb, 0) |
                                (lerp(ca, cb, 8) << 8) |
                                (lerp(ca, cb, 16) << 16);
-            plot_rgb(x, y, color);
+            plot_semi(x, y, rgb24_to_bgr15_dithered(color, x, y), semi);
         }
         else
-            plot_rgb(x, y, ca);
+            plot_semi(x, y, rgb24_to_bgr15_dithered(ca, x, y), semi);
         if (x == b.x && y == b.y)
             break;
         const core::s32 e2 = 2 * err;
@@ -740,7 +873,46 @@ void GPU::raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Wor
 {
     for (core::s32 y = 0; y < height; ++y)
         for (core::s32 x = 0; x < width; ++x)
-            plot_semi(origin.x + x, origin.y + y, rgb24_to_bgr15_dithered(color, origin.x + x, origin.y + y), semi);
+            plot_semi(origin.x + x, origin.y + y, rgb24_to_bgr15(color), semi);
+}
+
+void GPU::execute_gp0_vram_to_vram()
+{
+    transfer_source_x_ = static_cast<core::u16>(gp0_packet_[1] & 0x3FFu);
+    transfer_source_y_ = static_cast<core::u16>((gp0_packet_[1] >> 16) & 0x1FFu);
+    transfer_destination_x_ = static_cast<core::u16>(gp0_packet_[2] & 0x3FFu);
+    transfer_destination_y_ = static_cast<core::u16>((gp0_packet_[2] >> 16) & 0x1FFu);
+
+    const core::u32 raw_w = gp0_packet_[3] & 0xFFFFu;
+    const core::u32 raw_h = (gp0_packet_[3] >> 16) & 0xFFFFu;
+    const core::u32 width = ((raw_w - 1u) & 0x3FFu) + 1u;
+    const core::u32 height = ((raw_h - 1u) & 0x1FFu) + 1u;
+
+    // Snapshot the source because overlapping copies are defined as a VRAM
+    // transfer rather than a C++ memmove operation; the hardware reads the
+    // source image as it proceeds through the transfer.
+    std::vector<Half> source(static_cast<std::size_t>(width) * height);
+    for (core::u32 y = 0; y < height; ++y)
+        for (core::u32 x = 0; x < width; ++x)
+        {
+            const core::u32 sx = (transfer_source_x_ + x) % VRAM_WIDTH;
+            const core::u32 sy = (transfer_source_y_ + y) % VRAM_HEIGHT;
+            source[static_cast<std::size_t>(y) * width + x] = vram_[sy * VRAM_WIDTH + sx];
+        }
+
+    for (core::u32 y = 0; y < height; ++y)
+        for (core::u32 x = 0; x < width; ++x)
+        {
+            const core::u32 dx = (transfer_destination_x_ + x) % VRAM_WIDTH;
+            const core::u32 dy = (transfer_destination_y_ + y) % VRAM_HEIGHT;
+            Half& dst = vram_[dy * VRAM_WIDTH + dx];
+            if (mask_check_ && (dst & 0x8000u) != 0)
+                continue;
+            Half data = source[static_cast<std::size_t>(y) * width + x];
+            if (mask_set_)
+                data = static_cast<Half>(data | 0x8000u);
+            dst = data;
+        }
 }
 
 void GPU::execute_gp0_polygon()
@@ -777,6 +949,13 @@ void GPU::execute_gp0_polygon()
         }
     }
 
+    auto valid_edge = [](Vertex a, Vertex b) {
+        return std::abs(b.x - a.x) <= 1023 && std::abs(b.y - a.y) <= 511;
+    };
+    if (!valid_edge(v[0], v[1]) || !valid_edge(v[1], v[2]) || !valid_edge(v[2], v[0]) ||
+        (quad && (!valid_edge(v[2], v[3]) || !valid_edge(v[3], v[0]) || !valid_edge(v[1], v[3]))))
+        return;
+
     if (!textured)
     {
         raster_triangle(v[0], v[1], v[2], c[0], c[1], c[2], gouraud, semi);
@@ -800,17 +979,45 @@ void GPU::execute_gp0_line()
 {
     const Word command = gp0_packet_[0];
     const bool gouraud = (command & (1u << 28)) != 0;
+    const bool semi = (command & (1u << 25)) != 0;
     const Word c0 = rgb_components(command);
+
+    if (packet_polyline_)
+    {
+        std::size_t index = 1;
+        Vertex previous{};
+        Word previous_color = c0;
+        bool have_previous = false;
+        while (index < packet_size_)
+        {
+            Word color = previous_color;
+            if (have_previous && gouraud)
+            {
+                if (index >= packet_size_)
+                    break;
+                color = rgb_components(gp0_packet_[index++]);
+            }
+            if (index >= packet_size_)
+                break;
+            const Vertex current = unpack_vertex(gp0_packet_[index++]);
+            if (have_previous)
+                raster_line(previous, current, previous_color, color, gouraud, semi);
+            previous = current;
+            previous_color = color;
+            have_previous = true;
+        }
+        return;
+    }
+
     Vertex a = unpack_vertex(gp0_packet_[1]);
     Vertex b = unpack_vertex(gp0_packet_[2]);
     Word c1 = c0;
     if (gouraud)
     {
-        a = unpack_vertex(gp0_packet_[1]);
         c1 = rgb_components(gp0_packet_[2]);
         b = unpack_vertex(gp0_packet_[3]);
     }
-    raster_line(a, b, c0, c1, gouraud);
+    raster_line(a, b, c0, c1, gouraud, semi);
 }
 
 void GPU::execute_gp0_rectangle()
@@ -877,7 +1084,15 @@ void GPU::gp1_reset() noexcept
     mask_set_ = false;
     mask_check_ = false;
     dither_enabled_ = false;
+    draw_to_display_area_ = false;
     gpu_busy_cycles_ = 0;
+    transfer_x_ = transfer_y_ = transfer_width_ = transfer_height_ = 0;
+    transfer_source_x_ = transfer_source_y_ = 0;
+    transfer_destination_x_ = transfer_destination_y_ = 0;
+    transfer_words_remaining_ = transfer_pixel_index_ = 0;
+    read_transfer_pixel_index_ = 0;
+    vram_to_cpu_ = false;
+    gp0_read_latch_ = 0;
     tpage_ = 0;
     texture_window_mask_x_ = 0;
     texture_window_mask_y_ = 0;
@@ -889,15 +1104,53 @@ void GPU::gp1_reset() noexcept
 void GPU::gp1_command(Word value) noexcept
 {
     const Word opcode = value >> 24;
+
+    // GP1(10h..1Fh) are mirrors of the internal-register read command.
+    if (opcode >= 0x10u && opcode <= 0x1Fu)
+    {
+        switch (value & 0x0Fu)
+        {
+        case 0x02u:
+            gp0_read_latch_ = static_cast<Word>(texture_window_mask_x_) |
+                              (static_cast<Word>(texture_window_mask_y_) << 5) |
+                              (static_cast<Word>(texture_window_offset_x_) << 10) |
+                              (static_cast<Word>(texture_window_offset_y_) << 15);
+            break;
+        case 0x03u:
+            gp0_read_latch_ = static_cast<Word>(draw_left_) | (static_cast<Word>(draw_top_) << 10);
+            break;
+        case 0x04u:
+            gp0_read_latch_ = static_cast<Word>(draw_right_) | (static_cast<Word>(draw_bottom_) << 10);
+            break;
+        case 0x05u:
+            gp0_read_latch_ = (static_cast<Word>(draw_offset_x_) & 0x7FFu) |
+                              ((static_cast<Word>(draw_offset_y_) & 0x7FFu) << 11);
+            break;
+        case 0x07u:
+            gp0_read_latch_ = 2u;
+            break;
+        default:
+            break;
+        }
+        return;
+    }
+
     switch (opcode)
     {
     case 0x00u: gp1_reset(); break;
-    case 0x01u: reset_packet(); break;
+    case 0x01u:
+        reset_packet();
+        vram_to_cpu_ = false;
+        read_transfer_pixel_index_ = 0;
+        break;
     case 0x02u:
         gpu_irq_ = false;
         refresh_ready_status();
         break;
-    case 0x03u: display_enabled_ = (value & 1u) == 0; break;
+    case 0x03u:
+        display_enabled_ = (value & 1u) == 0;
+        if (display_enabled_) status_ |= 1u << 23; else status_ &= ~(1u << 23);
+        break;
     case 0x04u:
         dma_direction_ = static_cast<core::u8>(value & 3u);
         refresh_ready_status();
@@ -915,10 +1168,18 @@ void GPU::gp1_command(Word value) noexcept
         display_y2_ = (value >> 10) & 0x3FFu;
         break;
     case 0x08u:
-        display_mode_ = value & 0xFFu;
+        display_mode_ = static_cast<core::u8>(value & 0xFFu);
+        status_ = (status_ & ~((3u << 17) | (1u << 19) | (1u << 20) | (1u << 21) | (1u << 22))) |
+                  ((static_cast<Word>(display_mode_) & 3u) << 17) |
+                  (((static_cast<Word>(display_mode_) >> 2) & 1u) << 19) |
+                  (((static_cast<Word>(display_mode_) >> 3) & 1u) << 20) |
+                  (((static_cast<Word>(display_mode_) >> 4) & 1u) << 21) |
+                  (((static_cast<Word>(display_mode_) >> 5) & 1u) << 22);
+        if ((display_mode_ & (1u << 5)) == 0) status_ |= 1u << 13;
+        else status_ &= ~(1u << 13);
         break;
     case 0x09u:
-        // Retail PSX has 1 MB VRAM; the 2 MB mode is not needed by Stage 4.
+        // Retail model: 1 MB VRAM. GP1(09h) is a v2/2 MB configuration control.
         break;
     default:
         break;
@@ -927,7 +1188,20 @@ void GPU::gp1_command(Word value) noexcept
 
 GPU::Word GPU::read_gp0() const noexcept
 {
-    return 0;
+    if (!vram_to_cpu_) return gp0_read_latch_;
+    const core::u32 total = static_cast<core::u32>(transfer_width_) * transfer_height_;
+    Word result = 0;
+    for (unsigned half = 0; half < 2; ++half)
+    {
+        const core::u32 pixel = read_transfer_pixel_index_++;
+        if (pixel >= total) break;
+        const core::u32 x = (static_cast<core::u32>(transfer_x_) + pixel % transfer_width_) % VRAM_WIDTH;
+        const core::u32 y = (static_cast<core::u32>(transfer_y_) + pixel / transfer_width_) % VRAM_HEIGHT;
+        result |= static_cast<Word>(vram_[y * VRAM_WIDTH + x]) << (half * 16u);
+    }
+    if (read_transfer_pixel_index_ >= total) vram_to_cpu_ = false;
+    refresh_ready_status();
+    return result;
 }
 
 GPU::Word GPU::read_gp1() const noexcept

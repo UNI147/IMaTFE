@@ -62,16 +62,29 @@ private:
         Polygon,
         Line,
         Rectangle,
+        CpuToVram,
+        VramToCpu,
+        VramToVram,
     };
 
     std::vector<Half> vram_;
-    std::array<Word, 16> gp0_packet_{};
+    std::array<Word, 64> gp0_packet_{};
     std::size_t packet_size_ = 0;
     std::size_t packet_expected_ = 0;
     PacketKind packet_kind_ = PacketKind::None;
     Word packet_command_ = 0;
+    bool packet_polyline_ = false;
+    core::u16 transfer_x_ = 0, transfer_y_ = 0;
+    core::u16 transfer_width_ = 0, transfer_height_ = 0;
+    core::u32 transfer_words_remaining_ = 0;
+    core::u32 transfer_pixel_index_ = 0;
+    core::u16 transfer_source_x_ = 0, transfer_source_y_ = 0;
+    core::u16 transfer_destination_x_ = 0, transfer_destination_y_ = 0;
+    mutable core::u32 read_transfer_pixel_index_ = 0;
+    mutable bool vram_to_cpu_ = false;
+    mutable Word gp0_read_latch_ = 0;
 
-    Word status_ = 0x14802000u;
+    mutable Word status_ = 0x14802000u;
     bool display_enabled_ = true;
     core::u16 display_x_ = 0;
     core::u16 display_y_ = 0;
@@ -92,6 +105,7 @@ private:
     bool mask_set_ = false;
     bool mask_check_ = false;
     bool dither_enabled_ = false;
+    bool draw_to_display_area_ = false;
     core::u32 gpu_busy_cycles_ = 0;
 
     // GPU draw/texture state.  The PSX keeps texture pages and the texture
@@ -104,7 +118,7 @@ private:
     core::u8 texture_window_offset_y_ = 0;
 
     void reset_packet() noexcept;
-    void refresh_ready_status() noexcept;
+    void refresh_ready_status() const noexcept;
     void begin_gp0(Word command);
     void consume_packet_word(Word value);
     void execute_packet();
@@ -112,6 +126,9 @@ private:
 
     void execute_gp0_environment(Word command);
     void execute_gp0_quick_fill();
+    void execute_gp0_cpu_to_vram_word(Word value) noexcept;
+    void begin_vram_to_cpu(Word command) noexcept;
+    void execute_gp0_vram_to_vram();
     void execute_gp0_polygon();
     void execute_gp0_line();
     void execute_gp0_rectangle();
@@ -155,7 +172,7 @@ private:
                                   TexCoord ua, TexCoord ub, TexCoord uc,
                                   Word ca, Word cb, Word cc,
                                   bool gouraud, bool semi, const TextureInfo& texture);
-    void raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud);
+    void raster_line(Vertex a, Vertex b, Word ca, Word cb, bool gouraud, bool semi);
     void raster_rectangle(Vertex origin, core::s32 width, core::s32 height, Word color, bool semi);
     void raster_textured_rectangle(Vertex origin, TexCoord uv, core::s32 width, core::s32 height,
                                    const TextureInfo& texture, bool semi);
